@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 
 from mcp_probe.reporter import format_report, report_console, report_json
 from mcp_probe.types import CheckResult, ProbeReport, Severity, Status, SuiteResult
@@ -18,14 +17,20 @@ def _make_report():
         server_info={"name": "test-server", "version": "1.0.0"},
         capabilities={"tools": True, "resources": False},
         suites=[
-            SuiteResult(name="lifecycle", checks=[
-                CheckResult("INIT-001", "Server responds", Status.PASS, Severity.CRITICAL, 45.0),
-            ]),
-            SuiteResult(name="tools", checks=[
-                CheckResult("TOOL-001", "List tools", Status.PASS, Severity.CRITICAL, 30.0),
-                CheckResult("TOOL-003", "Schema check", Status.FAIL, Severity.ERROR, 15.0, "invalid"),
-                CheckResult("EDGE-001", "Empty params", Status.WARN, Severity.WARNING, 5.0, "slow"),
-            ]),
+            SuiteResult(
+                name="lifecycle",
+                checks=[
+                    CheckResult("INIT-001", "Server responds", Status.PASS, Severity.CRITICAL, 45.0),
+                ],
+            ),
+            SuiteResult(
+                name="tools",
+                checks=[
+                    CheckResult("TOOL-001", "List tools", Status.PASS, Severity.CRITICAL, 30.0),
+                    CheckResult("TOOL-003", "Schema check", Status.FAIL, Severity.ERROR, 15.0, "invalid"),
+                    CheckResult("EDGE-001", "Empty params", Status.WARN, Severity.WARNING, 5.0, "slow"),
+                ],
+            ),
         ],
     )
 

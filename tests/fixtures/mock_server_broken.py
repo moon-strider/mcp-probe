@@ -18,32 +18,41 @@ def _handle_request(msg):
         return None
 
     if method == "initialize":
-        return _response(msg_id, {
-            "serverInfo": {"name": "mock-broken", "version": "0.0.1"},
-        })
+        return _response(
+            msg_id,
+            {
+                "serverInfo": {"name": "mock-broken", "version": "0.0.1"},
+            },
+        )
 
     if method == "ping":
         return _response(msg_id, {})
 
     if method == "tools/list":
-        return _response(msg_id, {
-            "tools": [
-                {
-                    "name": "no_desc_tool",
-                    "inputSchema": {"type": "object", "properties": {}},
-                },
-                {
-                    "name": "bad_schema_tool",
-                    "description": "Tool with invalid schema",
-                    "inputSchema": "not-a-dict",
-                },
-            ],
-        })
+        return _response(
+            msg_id,
+            {
+                "tools": [
+                    {
+                        "name": "no_desc_tool",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    },
+                    {
+                        "name": "bad_schema_tool",
+                        "description": "Tool with invalid schema",
+                        "inputSchema": "not-a-dict",
+                    },
+                ],
+            },
+        )
 
     if method == "tools/call":
-        return _response(msg_id, {
-            "content": [{"type": "text", "text": "ok"}],
-        })
+        return _response(
+            msg_id,
+            {
+                "content": [{"type": "text", "text": "ok"}],
+            },
+        )
 
     if method == "resources/list":
         return {
@@ -52,9 +61,12 @@ def _handle_request(msg):
         }
 
     if method == "resources/read":
-        return _response(msg_id, {
-            "contents": [{"uri": params.get("uri", ""), "text": "data"}],
-        })
+        return _response(
+            msg_id,
+            {
+                "contents": [{"uri": params.get("uri", ""), "text": "data"}],
+            },
+        )
 
     if method == "prompts/list":
         return _response(msg_id, {"prompts": []})

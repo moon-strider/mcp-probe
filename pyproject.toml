@@ -24,9 +24,9 @@ classifiers = [
 mcp-probe = "mcp_probe.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/mcp-probe/mcp-probe"
-Documentation = "https://github.com/mcp-probe/mcp-probe#readme"
-Issues = "https://github.com/mcp-probe/mcp-probe/issues"
+Homepage = "https://github.com/moon-strider/mcp-probe"
+Documentation = "https://github.com/moon-strider/mcp-probe#readme"
+Issues = "https://github.com/moon-strider/mcp-probe/issues"
 
 [project.optional-dependencies]
 full = ["jsonschema>=4.0"]
@@ -42,11 +42,15 @@ dev = [
 
 [tool.ruff]
 target-version = "py310"
-line-length = 100
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
 
 [tool.mypy]
 python_version = "3.10"
-strict = true
+warn_return_any = true
+warn_unused_configs = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

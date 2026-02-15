@@ -23,7 +23,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description="CLI validator for Model Context Protocol (MCP) server compliance",
     )
     parser.add_argument(
-        "-V", "--version",
+        "-V",
+        "--version",
         action="version",
         version=f"mcp-probe {__version__}",
     )
@@ -68,7 +69,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write report to file instead of stdout",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         default=False,
         help="Show details and payloads for all checks",
@@ -86,7 +88,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Disable ANSI colors in console output",
     )
     parser.add_argument(
-        "-H", "--header",
+        "-H",
+        "--header",
         action="append",
         default=[],
         dest="headers",

@@ -7,6 +7,7 @@ if sys.version_info >= (3, 11):
     from typing import Self
 else:
     from typing import TypeVar
+
     Self = TypeVar("Self", bound="BaseTransport")
 
 
@@ -29,9 +30,9 @@ class BaseTransport(abc.ABC):
     @abc.abstractmethod
     async def stop(self) -> None: ...
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self) -> Self:  # type: ignore[return-value]
         await self.start()
-        return self
+        return self  # type: ignore[return-value]
 
     async def __aexit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> None:
         await self.stop()

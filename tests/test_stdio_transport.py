@@ -13,13 +13,13 @@ from mcp_probe.transport.stdio import StdioTransport
 def echo_script():
     f = tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False)
     f.write(
-        'import sys, json\n'
-        'for line in sys.stdin:\n'
-        '    line = line.strip()\n'
-        '    if not line: continue\n'
-        '    msg = json.loads(line)\n'
+        "import sys, json\n"
+        "for line in sys.stdin:\n"
+        "    line = line.strip()\n"
+        "    if not line: continue\n"
+        "    msg = json.loads(line)\n"
         '    sys.stdout.write(json.dumps(msg) + "\\n")\n'
-        '    sys.stdout.flush()\n'
+        "    sys.stdout.flush()\n"
     )
     f.close()
     return f.name
@@ -29,15 +29,15 @@ def echo_script():
 def noisy_script():
     f = tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False)
     f.write(
-        'import sys, json\n'
+        "import sys, json\n"
         'sys.stdout.write("debug: starting up\\n")\n'
-        'sys.stdout.flush()\n'
-        'for line in sys.stdin:\n'
-        '    line = line.strip()\n'
-        '    if not line: continue\n'
-        '    msg = json.loads(line)\n'
+        "sys.stdout.flush()\n"
+        "for line in sys.stdin:\n"
+        "    line = line.strip()\n"
+        "    if not line: continue\n"
+        "    msg = json.loads(line)\n"
         '    sys.stdout.write(json.dumps(msg) + "\\n")\n'
-        '    sys.stdout.flush()\n'
+        "    sys.stdout.flush()\n"
     )
     f.close()
     return f.name
@@ -46,11 +46,7 @@ def noisy_script():
 @pytest.fixture
 def hang_script():
     f = tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False)
-    f.write(
-        'import signal, time\n'
-        'signal.signal(signal.SIGTERM, signal.SIG_IGN)\n'
-        'while True: time.sleep(1)\n'
-    )
+    f.write("import signal, time\n" "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n" "while True: time.sleep(1)\n")
     f.close()
     return f.name
 

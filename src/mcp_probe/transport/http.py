@@ -12,7 +12,7 @@ from mcp_probe.transport.sse import parse_sse_json_stream
 logger = logging.getLogger(__name__)
 
 
-class AuthRequired(Exception):
+class AuthRequiredError(Exception):
     pass
 
 
@@ -48,7 +48,7 @@ class HttpTransport(BaseTransport):
             response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=self._timeout)
         except urllib.error.HTTPError as exc:
             if exc.code == 401:
-                raise AuthRequired(f"Server returned 401 Unauthorized: {self._url}") from exc
+                raise AuthRequiredError(f"Server returned 401 Unauthorized: {self._url}") from exc
             raise ConnectionError(f"HTTP {exc.code}: {exc.reason}") from exc
         except urllib.error.URLError as exc:
             raise ConnectionError(f"Connection failed: {exc.reason}") from exc

@@ -76,7 +76,8 @@ class StdioTransport(BaseTransport):
             if not line:
                 continue
             try:
-                return json.loads(line)
+                parsed: dict = json.loads(line)
+                return parsed
             except json.JSONDecodeError:
                 self.non_json_lines += 1
                 logger.debug("Non-JSON line from stdout: %s", line[:200])

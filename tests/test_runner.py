@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mcp_probe.runner import Runner, _VALID_SUITE_NAMES, compute_exit_code
+from mcp_probe.runner import _VALID_SUITE_NAMES, Runner, compute_exit_code
 from mcp_probe.types import CheckResult, ProbeReport, Severity, Status, SuiteResult
 
 
@@ -35,36 +35,66 @@ def test_should_run_filtered():
 
 def test_exit_code_no_failures():
     report = ProbeReport(
-        probe_version="0.1.0", spec_version="2025-11-25",
-        target="test", transport="stdio", timestamp="", duration_ms=0,
-        server_info=None, capabilities={},
-        suites=[SuiteResult(name="lifecycle", checks=[
-            CheckResult("INIT-001", "test", Status.PASS, Severity.CRITICAL, 0),
-        ])],
+        probe_version="0.1.0",
+        spec_version="2025-11-25",
+        target="test",
+        transport="stdio",
+        timestamp="",
+        duration_ms=0,
+        server_info=None,
+        capabilities={},
+        suites=[
+            SuiteResult(
+                name="lifecycle",
+                checks=[
+                    CheckResult("INIT-001", "test", Status.PASS, Severity.CRITICAL, 0),
+                ],
+            )
+        ],
     )
     assert compute_exit_code(report) == 0
 
 
 def test_exit_code_with_critical_failure():
     report = ProbeReport(
-        probe_version="0.1.0", spec_version="2025-11-25",
-        target="test", transport="stdio", timestamp="", duration_ms=0,
-        server_info=None, capabilities={},
-        suites=[SuiteResult(name="lifecycle", checks=[
-            CheckResult("INIT-001", "test", Status.FAIL, Severity.CRITICAL, 0),
-        ])],
+        probe_version="0.1.0",
+        spec_version="2025-11-25",
+        target="test",
+        transport="stdio",
+        timestamp="",
+        duration_ms=0,
+        server_info=None,
+        capabilities={},
+        suites=[
+            SuiteResult(
+                name="lifecycle",
+                checks=[
+                    CheckResult("INIT-001", "test", Status.FAIL, Severity.CRITICAL, 0),
+                ],
+            )
+        ],
     )
     assert compute_exit_code(report) == 1
 
 
 def test_exit_code_strict_mode():
     report = ProbeReport(
-        probe_version="0.1.0", spec_version="2025-11-25",
-        target="test", transport="stdio", timestamp="", duration_ms=0,
-        server_info=None, capabilities={},
-        suites=[SuiteResult(name="edge", checks=[
-            CheckResult("EDGE-001", "test", Status.WARN, Severity.WARNING, 0),
-        ])],
+        probe_version="0.1.0",
+        spec_version="2025-11-25",
+        target="test",
+        transport="stdio",
+        timestamp="",
+        duration_ms=0,
+        server_info=None,
+        capabilities={},
+        suites=[
+            SuiteResult(
+                name="edge",
+                checks=[
+                    CheckResult("EDGE-001", "test", Status.WARN, Severity.WARNING, 0),
+                ],
+            )
+        ],
     )
     assert compute_exit_code(report, strict=False) == 0
     assert compute_exit_code(report, strict=True) == 1
@@ -72,11 +102,21 @@ def test_exit_code_strict_mode():
 
 def test_exit_code_info_fail_ignored():
     report = ProbeReport(
-        probe_version="0.1.0", spec_version="2025-11-25",
-        target="test", transport="stdio", timestamp="", duration_ms=0,
-        server_info=None, capabilities={},
-        suites=[SuiteResult(name="auth", checks=[
-            CheckResult("AUTH-001", "test", Status.FAIL, Severity.INFO, 0),
-        ])],
+        probe_version="0.1.0",
+        spec_version="2025-11-25",
+        target="test",
+        transport="stdio",
+        timestamp="",
+        duration_ms=0,
+        server_info=None,
+        capabilities={},
+        suites=[
+            SuiteResult(
+                name="auth",
+                checks=[
+                    CheckResult("AUTH-001", "test", Status.FAIL, Severity.INFO, 0),
+                ],
+            )
+        ],
     )
     assert compute_exit_code(report) == 0

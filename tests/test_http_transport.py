@@ -1,22 +1,19 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from mcp_probe.transport.http import AuthRequired, HttpTransport
+from mcp_probe.transport.http import AuthRequiredError, HttpTransport
 
 
 class MockMCPHandler(BaseHTTPRequestHandler):
-    def do_POST(self):
+    def do_POST(self):  # noqa: N802
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         msg = json.loads(body)
-
-        session_id = self.headers.get("Mcp-Session-Id")
 
         response = {
             "jsonrpc": "2.0",
@@ -32,7 +29,7 @@ class MockMCPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(resp_bytes)
 
-    def do_DELETE(self):
+    def do_DELETE(self):  # noqa: N802
         self.send_response(200)
         self.end_headers()
 
@@ -41,7 +38,7 @@ class MockMCPHandler(BaseHTTPRequestHandler):
 
 
 class MockAuthHandler(BaseHTTPRequestHandler):
-    def do_POST(self):
+    def do_POST(self):  # noqa: N802
         self.send_response(401)
         self.send_header("WWW-Authenticate", "Bearer")
         self.end_headers()
@@ -98,7 +95,7 @@ async def test_auth_required(mock_auth_server):
     t = HttpTransport(mock_auth_server, timeout=5.0)
     await t.start()
     try:
-        with pytest.raises(AuthRequired):
+        with pytest.raises(AuthRequiredError):
             await t.send({"jsonrpc": "2.0", "id": 1, "method": "test"})
     finally:
         await t.stop()

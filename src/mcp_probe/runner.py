@@ -11,10 +11,19 @@ from mcp_probe.types import PROBE_VERSION, SPEC_VERSION, ProbeReport, Severity, 
 
 logger = logging.getLogger(__name__)
 
-_VALID_SUITE_NAMES = frozenset({
-    "lifecycle", "tools", "resources", "prompts",
-    "jsonrpc", "notifications", "tasks", "auth", "edge",
-})
+_VALID_SUITE_NAMES = frozenset(
+    {
+        "lifecycle",
+        "tools",
+        "resources",
+        "prompts",
+        "jsonrpc",
+        "notifications",
+        "tasks",
+        "auth",
+        "edge",
+    }
+)
 
 _SUITE_ORDER = [
     "auth",
@@ -29,7 +38,7 @@ _SUITE_ORDER = [
 ]
 
 
-class AbortRun(Exception):
+class AbortRunError(Exception):
     pass
 
 
@@ -58,8 +67,7 @@ class Runner:
             for name in suites_to_run:
                 if name not in _VALID_SUITE_NAMES:
                     raise ValueError(
-                        f"Unknown suite '{name}'. "
-                        f"Valid suites: {', '.join(sorted(_VALID_SUITE_NAMES))}"
+                        f"Unknown suite '{name}'. " f"Valid suites: {', '.join(sorted(_VALID_SUITE_NAMES))}"
                     )
             self._explicitly_requested = set(suites_to_run)
 
@@ -116,7 +124,7 @@ class Runner:
             await self._run_tasks(report, has_tasks)
             await self._run_edge(report)
 
-        except AbortRun:
+        except AbortRunError:
             logger.info("Run aborted due to critical failure")
 
         report.duration_ms = (time.perf_counter() - start) * 1000
@@ -147,7 +155,7 @@ class Runner:
 
         for check in result.checks:
             if check.check_id == "INIT-001" and check.status is Status.FAIL:
-                raise AbortRun("INIT-001 failed — server handshake broken")
+                raise AbortRunError("INIT-001 failed — server handshake broken")
 
     async def _run_jsonrpc(self, report: ProbeReport) -> None:
         if not self._should_run_suite("jsonrpc"):

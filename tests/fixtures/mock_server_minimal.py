@@ -22,30 +22,41 @@ def _handle_request(msg):
         return None
 
     if method == "initialize":
-        return _response(msg_id, {
-            "protocolVersion": "2025-11-25",
-            "capabilities": {"tools": {}},
-            "serverInfo": {"name": "mock-minimal", "version": "1.0.0"},
-        })
+        return _response(
+            msg_id,
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "mock-minimal", "version": "1.0.0"},
+            },
+        )
 
     if method == "ping":
         return _response(msg_id, {})
 
     if method == "tools/list":
-        return _response(msg_id, {
-            "tools": [{
-                "name": "ping",
-                "description": "Returns pong",
-                "inputSchema": {"type": "object", "properties": {}},
-            }],
-        })
+        return _response(
+            msg_id,
+            {
+                "tools": [
+                    {
+                        "name": "ping",
+                        "description": "Returns pong",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    }
+                ],
+            },
+        )
 
     if method == "tools/call":
         name = params.get("name", "")
         if name == "ping":
-            return _response(msg_id, {
-                "content": [{"type": "text", "text": "pong"}],
-            })
+            return _response(
+                msg_id,
+                {
+                    "content": [{"type": "text", "text": "pong"}],
+                },
+            )
         return _error(msg_id, -32602, f"Unknown tool: {name}")
 
     return _error(msg_id, -32601, f"Method not found: {method}")

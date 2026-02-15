@@ -24,12 +24,14 @@ class JsonRpcSuite(BaseSuite):
 
     @check("RPC-001", "Response contains jsonrpc 2.0 field", Severity.CRITICAL)
     async def check_rpc_001(self):
-        resp = await self._client.send_raw({
-            "jsonrpc": "2.0",
-            "id": 8001,
-            "method": "tools/list",
-            "params": {},
-        })
+        resp = await self._client.send_raw(
+            {
+                "jsonrpc": "2.0",
+                "id": 8001,
+                "method": "tools/list",
+                "params": {},
+            }
+        )
         if resp is None:
             return self.fail_check("No response received")
         version = resp.get("jsonrpc")
@@ -39,12 +41,14 @@ class JsonRpcSuite(BaseSuite):
 
     @check("RPC-002", "Response id matches request id", Severity.CRITICAL)
     async def check_rpc_002(self):
-        resp = await self._client.send_raw({
-            "jsonrpc": "2.0",
-            "id": 8042,
-            "method": "tools/list",
-            "params": {},
-        })
+        resp = await self._client.send_raw(
+            {
+                "jsonrpc": "2.0",
+                "id": 8042,
+                "method": "tools/list",
+                "params": {},
+            }
+        )
         if resp is None:
             return self.fail_check("No response received")
         if resp.get("id") != 8042:
@@ -53,12 +57,14 @@ class JsonRpcSuite(BaseSuite):
 
     @check("RPC-003", "Error response has valid structure", Severity.ERROR)
     async def check_rpc_003(self):
-        resp = await self._client.send_raw({
-            "jsonrpc": "2.0",
-            "id": 8003,
-            "method": "nonexistent/method_for_rpc003",
-            "params": {},
-        })
+        resp = await self._client.send_raw(
+            {
+                "jsonrpc": "2.0",
+                "id": 8003,
+                "method": "nonexistent/method_for_rpc003",
+                "params": {},
+            }
+        )
         if resp is None:
             return self.fail_check("No response received")
         self._record_error(resp)
@@ -75,7 +81,7 @@ class JsonRpcSuite(BaseSuite):
     async def check_rpc_004(self):
         transport = self._client._transport
         try:
-            if hasattr(transport, '_process') and transport._process and transport._process.stdin:
+            if hasattr(transport, "_process") and transport._process and transport._process.stdin:
                 transport._process.stdin.write(b"not json at all\n")
                 await transport._process.stdin.drain()
             else:
@@ -86,12 +92,14 @@ class JsonRpcSuite(BaseSuite):
         await asyncio.sleep(0.3)
 
         try:
-            resp = await self._client.send_raw({
-                "jsonrpc": "2.0",
-                "id": 8004,
-                "method": "tools/list",
-                "params": {},
-            })
+            resp = await self._client.send_raw(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 8004,
+                    "method": "tools/list",
+                    "params": {},
+                }
+            )
             if resp is not None:
                 return self.pass_check("Server still responds after invalid JSON")
             return self.fail_check("Server stopped responding after invalid JSON")
@@ -100,12 +108,14 @@ class JsonRpcSuite(BaseSuite):
 
     @check("RPC-005", "Unknown method returns -32601", Severity.WARNING)
     async def check_rpc_005(self):
-        resp = await self._client.send_raw({
-            "jsonrpc": "2.0",
-            "id": 8005,
-            "method": "nonexistent/method_for_rpc005",
-            "params": {},
-        })
+        resp = await self._client.send_raw(
+            {
+                "jsonrpc": "2.0",
+                "id": 8005,
+                "method": "nonexistent/method_for_rpc005",
+                "params": {},
+            }
+        )
         if resp is None:
             return self.fail_check("No response received")
         self._record_error(resp)
@@ -119,18 +129,22 @@ class JsonRpcSuite(BaseSuite):
 
     @check("RPC-006", "Server ignores unknown notification", Severity.INFO)
     async def check_rpc_006(self):
-        await self._client._transport.send({
-            "jsonrpc": "2.0",
-            "method": "nonexistent/notification_for_rpc006",
-        })
+        await self._client._transport.send(
+            {
+                "jsonrpc": "2.0",
+                "method": "nonexistent/notification_for_rpc006",
+            }
+        )
         await asyncio.sleep(0.3)
         try:
-            resp = await self._client.send_raw({
-                "jsonrpc": "2.0",
-                "id": 8006,
-                "method": "tools/list",
-                "params": {},
-            })
+            resp = await self._client.send_raw(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 8006,
+                    "method": "tools/list",
+                    "params": {},
+                }
+            )
             if resp is not None:
                 return self.pass_check("Server still responds after unknown notification")
             return self.fail_check("Server stopped responding after unknown notification")

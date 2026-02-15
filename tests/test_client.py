@@ -72,20 +72,24 @@ async def test_get_prompt(client_on_valid):
 
 async def test_send_raw(client_on_valid):
     await client_on_valid.initialize()
-    resp = await client_on_valid.send_raw({
-        "jsonrpc": "2.0",
-        "id": 9999,
-        "method": "tools/list",
-        "params": {},
-    })
+    resp = await client_on_valid.send_raw(
+        {
+            "jsonrpc": "2.0",
+            "id": 9999,
+            "method": "tools/list",
+            "params": {},
+        }
+    )
     assert resp is not None
     assert "result" in resp
 
 
 async def test_send_raw_notification(client_on_valid):
     await client_on_valid.initialize()
-    resp = await client_on_valid.send_raw({
-        "jsonrpc": "2.0",
-        "method": "notifications/initialized",
-    })
+    resp = await client_on_valid.send_raw(
+        {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        }
+    )
     assert resp is None

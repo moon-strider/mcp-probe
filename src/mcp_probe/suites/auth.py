@@ -80,9 +80,7 @@ class AuthSuite(BaseSuite):
         if self._auth_server is None:
             self.skip("No authorization server discovered")
         try:
-            token = await asyncio.to_thread(
-                perform_oauth_flow, self._server_url, "mcp-probe"
-            )
+            token = await asyncio.to_thread(perform_oauth_flow, self._server_url, "mcp-probe")
         except OAuthError as exc:
             return self.fail_check(f"OAuth flow failed: {exc}")
         req = urllib.request.Request(self._server_url, data=b"{}", method="POST")

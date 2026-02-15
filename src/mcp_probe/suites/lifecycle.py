@@ -7,7 +7,7 @@ from collections.abc import Callable
 from mcp_probe.client import MCPClient
 from mcp_probe.suites.base import BaseSuite, check
 from mcp_probe.transport.base import BaseTransport
-from mcp_probe.types import Severity, SPEC_VERSION, PROBE_VERSION
+from mcp_probe.types import PROBE_VERSION, SPEC_VERSION, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -110,11 +110,13 @@ class LifecycleSuite(BaseSuite):
         if self._init_response is None:
             self.skip("INIT-001 did not complete")
         try:
-            resp = await self._client.send_raw({
-                "jsonrpc": "2.0",
-                "id": 9992,
-                "method": "ping",
-            })
+            resp = await self._client.send_raw(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 9992,
+                    "method": "ping",
+                }
+            )
         except asyncio.TimeoutError:
             resp = None
         if resp is None:

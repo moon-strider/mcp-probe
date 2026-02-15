@@ -53,14 +53,17 @@ class MCPClient:
         await self._transport.send(message)
 
     async def initialize(self) -> dict:
-        result = await self._send_request("initialize", {
-            "protocolVersion": SPEC_VERSION,
-            "capabilities": {},
-            "clientInfo": {
-                "name": "mcp-probe",
-                "version": PROBE_VERSION,
+        result = await self._send_request(
+            "initialize",
+            {
+                "protocolVersion": SPEC_VERSION,
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "mcp-probe",
+                    "version": PROBE_VERSION,
+                },
             },
-        })
+        )
         if "result" in result:
             self.server_info = result["result"].get("serverInfo")
             self.capabilities = result["result"].get("capabilities", {})
@@ -86,10 +89,13 @@ class MCPClient:
         return await self._paginated_list("tools/list", "tools")
 
     async def call_tool(self, name: str, arguments: dict) -> dict:
-        return await self._send_request("tools/call", {
-            "name": name,
-            "arguments": arguments,
-        })
+        return await self._send_request(
+            "tools/call",
+            {
+                "name": name,
+                "arguments": arguments,
+            },
+        )
 
     async def list_resources(self) -> list[dict]:
         return await self._paginated_list("resources/list", "resources")
@@ -125,11 +131,14 @@ class MCPClient:
         return await self._send_request("tasks/get_result", {"taskId": task_id})
 
     async def call_tool_with_task(self, name: str, arguments: dict, ttl: int = 30000) -> dict:
-        return await self._send_request("tools/call", {
-            "name": name,
-            "arguments": arguments,
-            "task": {"ttl": ttl},
-        })
+        return await self._send_request(
+            "tools/call",
+            {
+                "name": name,
+                "arguments": arguments,
+                "task": {"ttl": ttl},
+            },
+        )
 
     async def send_raw(self, message: dict) -> dict | None:
         await self._transport.send(message)

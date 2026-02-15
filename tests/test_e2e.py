@@ -5,8 +5,6 @@ import subprocess
 import sys
 import tempfile
 
-import pytest
-
 from tests.conftest import MOCK_BROKEN, MOCK_MINIMAL, MOCK_VALID
 
 
@@ -62,8 +60,9 @@ class TestSuiteFilter:
 class TestStrictMode:
     def test_strict_elevates_warnings(self):
         r_normal = _run_probe(f"{sys.executable} {MOCK_VALID}")
-        r_strict = _run_probe(f"{sys.executable} {MOCK_VALID}", "--strict")
         assert r_normal.returncode == 0
+        r_strict = _run_probe(f"{sys.executable} {MOCK_VALID}", "--strict")
+        assert r_strict.returncode in (0, 1)
 
 
 class TestOutputFile:
@@ -72,8 +71,10 @@ class TestOutputFile:
             path = f.name
         r = _run_probe(
             f"{sys.executable} {MOCK_VALID}",
-            "--format", "json",
-            "--output", path,
+            "--format",
+            "json",
+            "--output",
+            path,
         )
         assert r.returncode == 0
         with open(path) as f:

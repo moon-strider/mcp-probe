@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import sys
 
-import pytest
-
 from mcp_probe.client import MCPClient
 from mcp_probe.transport.stdio import StdioTransport
 from mcp_probe.types import Status
-from tests.conftest import MOCK_BROKEN, MOCK_MINIMAL, MOCK_VALID
+from tests.conftest import MOCK_BROKEN, MOCK_VALID
 
 
 async def _make_client(cmd: str, timeout: float = 5.0):
@@ -27,6 +25,7 @@ class TestLifecycleSuiteValid:
         c, t = await _make_client(cmd)
         try:
             from mcp_probe.suites.lifecycle import LifecycleSuite
+
             suite = LifecycleSuite(c, lambda: StdioTransport(cmd), timeout=5.0)
             result = await suite.run()
             sm = _status_map(result)
@@ -44,6 +43,7 @@ class TestLifecycleSuiteBroken:
         c, t = await _make_client(cmd)
         try:
             from mcp_probe.suites.lifecycle import LifecycleSuite
+
             suite = LifecycleSuite(c, lambda: StdioTransport(cmd), timeout=5.0)
             result = await suite.run()
             sm = _status_map(result)
@@ -61,6 +61,7 @@ class TestJsonRpcSuiteValid:
         try:
             await c.initialize()
             from mcp_probe.suites.jsonrpc import JsonRpcSuite
+
             suite = JsonRpcSuite(c, 5.0)
             result = await suite.run()
             sm = _status_map(result)
@@ -78,6 +79,7 @@ class TestToolsSuiteValid:
         try:
             await c.initialize()
             from mcp_probe.suites.tools import ToolsSuite
+
             suite = ToolsSuite(c, 5.0)
             result = await suite.run()
             sm = _status_map(result)
@@ -94,6 +96,7 @@ class TestToolsSuiteBroken:
         try:
             await c.initialize()
             from mcp_probe.suites.tools import ToolsSuite
+
             suite = ToolsSuite(c, 5.0)
             result = await suite.run()
             sm = _status_map(result)
@@ -110,6 +113,7 @@ class TestResourcesSuiteValid:
         try:
             await c.initialize()
             from mcp_probe.suites.resources import ResourcesSuite
+
             suite = ResourcesSuite(c, 5.0)
             result = await suite.run()
             sm = _status_map(result)
@@ -126,6 +130,7 @@ class TestPromptsSuiteValid:
         try:
             await c.initialize()
             from mcp_probe.suites.prompts import PromptsSuite
+
             suite = PromptsSuite(c, 5.0)
             result = await suite.run()
             sm = _status_map(result)
@@ -143,6 +148,7 @@ class TestEdgeCasesSuiteValid:
             await c.initialize()
             tools = await c.list_tools()
             from mcp_probe.suites.edge_cases import EdgeCasesSuite
+
             suite = EdgeCasesSuite(c, tools=tools, timeout=5.0)
             result = await suite.run()
             sm = _status_map(result)
@@ -161,6 +167,7 @@ class TestNotificationsSuiteValid:
         try:
             await c.initialize()
             from mcp_probe.suites.notifications import NotificationsSuite
+
             suite = NotificationsSuite(c, 5.0)
             result = await suite.run()
             sm = _status_map(result)

@@ -10,6 +10,7 @@ import urllib.parse
 import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,24 +30,26 @@ def _generate_pkce() -> tuple[str, str]:
     return code_verifier, code_challenge
 
 
-def discover_protected_resource(url: str) -> dict | None:
+def discover_protected_resource(url: str) -> dict[str, Any] | None:
     parsed = urllib.parse.urlparse(url)
     well_known = f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-protected-resource"
     req = urllib.request.Request(well_known, method="GET")
     try:
         resp = urllib.request.urlopen(req, timeout=10)
-        return json.loads(resp.read())
+        result: dict[str, Any] = json.loads(resp.read())
+        return result
     except Exception:
         logger.debug("Failed to discover protected resource metadata at %s", well_known)
         return None
 
 
-def discover_oauth_metadata(auth_server_url: str) -> dict | None:
+def discover_oauth_metadata(auth_server_url: str) -> dict[str, Any] | None:
     url = auth_server_url.rstrip("/") + "/.well-known/oauth-authorization-server"
     req = urllib.request.Request(url, method="GET")
     try:
         resp = urllib.request.urlopen(req, timeout=10)
-        return json.loads(resp.read())
+        result: dict[str, Any] = json.loads(resp.read())
+        return result
     except Exception:
         logger.debug("Failed to discover OAuth metadata at %s", url)
         return None
@@ -56,7 +59,7 @@ def _start_callback_server(port: int, timeout: float = 120.0) -> tuple[str, str]
     result: dict[str, str] = {}
 
     class CallbackHandler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
+        def do_GET(self) -> None:  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
             params = urllib.parse.parse_qs(parsed.query)
             code = params.get("code", [None])[0]
@@ -68,7 +71,8 @@ def _start_callback_server(port: int, timeout: float = 120.0) -> tuple[str, str]
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            self.wfile.write(b"<html><body><h1>Authorization complete.</h1><p>You can close this tab.</p></body></html>")
+            body = b"<html><body><h1>Authorization complete.</h1><p>You can close this tab.</p></body></html>"
+            self.wfile.write(body)
 
         def log_message(self, format: str, *args: object) -> None:
             pass
@@ -129,14 +133,16 @@ def perform_oauth_flow(
     if callback_state != state:
         raise OAuthError(f"State mismatch: expected {state}, got {callback_state}")
 
-    token_data = urllib.parse.urlencode({
-        "grant_type": "authorization_code",
-        "code": code,
-        "code_verifier": code_verifier,
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "resource": server_url,
-    }).encode()
+    token_data = urllib.parse.urlencode(
+        {
+            "grant_type": "authorization_code",
+            "code": code,
+            "code_verifier": code_verifier,
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "resource": server_url,
+        }
+    ).encode()
     token_req = urllib.request.Request(
         token_endpoint,
         data=token_data,
@@ -156,4 +162,4 @@ def perform_oauth_flow(
     if not access_token:
         raise OAuthError("No access_token in token response")
 
-    return access_token
+    return str(access_token)

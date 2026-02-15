@@ -30,12 +30,14 @@ class EdgeCasesSuite(BaseSuite):
 
     @check("EDGE-001", "tools/list accepts empty params object", Severity.WARNING)
     async def check_edge_001(self):
-        resp = await self._client.send_raw({
-            "jsonrpc": "2.0",
-            "id": 9001,
-            "method": "tools/list",
-            "params": {},
-        })
+        resp = await self._client.send_raw(
+            {
+                "jsonrpc": "2.0",
+                "id": 9001,
+                "method": "tools/list",
+                "params": {},
+            }
+        )
         if resp is None:
             return self.fail_check("No response (timeout)")
         if "error" in resp:
@@ -44,11 +46,13 @@ class EdgeCasesSuite(BaseSuite):
 
     @check("EDGE-002", "tools/list accepts missing params field", Severity.WARNING)
     async def check_edge_002(self):
-        resp = await self._client.send_raw({
-            "jsonrpc": "2.0",
-            "id": 9002,
-            "method": "tools/list",
-        })
+        resp = await self._client.send_raw(
+            {
+                "jsonrpc": "2.0",
+                "id": 9002,
+                "method": "tools/list",
+            }
+        )
         if resp is None:
             return self.fail_check("No response (timeout)")
         if "error" in resp:
@@ -75,12 +79,14 @@ class EdgeCasesSuite(BaseSuite):
     @check("EDGE-004", "Response time within timeout", Severity.WARNING)
     async def check_edge_004(self):
         start = time.perf_counter()
-        resp = await self._client.send_raw({
-            "jsonrpc": "2.0",
-            "id": 9004,
-            "method": "tools/list",
-            "params": {},
-        })
+        resp = await self._client.send_raw(
+            {
+                "jsonrpc": "2.0",
+                "id": 9004,
+                "method": "tools/list",
+                "params": {},
+            }
+        )
         elapsed = time.perf_counter() - start
         if resp is None:
             return self.fail_check("No response (timeout)")

@@ -45,11 +45,13 @@ class NotificationsSuite(BaseSuite):
     @check("NOTIF-001", "Server accepts notifications/initialized", Severity.CRITICAL)
     async def check_notif_001(self):
         try:
-            resp = await self._client.send_raw({
-                "jsonrpc": "2.0",
-                "id": 7001,
-                "method": "ping",
-            })
+            resp = await self._client.send_raw(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 7001,
+                    "method": "ping",
+                }
+            )
             if resp is not None:
                 return self.pass_check("Server responds after notifications/initialized")
         except asyncio.TimeoutError:

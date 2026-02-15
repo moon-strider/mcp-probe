@@ -3,14 +3,15 @@ from __future__ import annotations
 import logging
 import re
 
-from mcp_probe.schema_utils import generate_invalid_args, generate_valid_args, is_complex_schema
+from mcp_probe.schema_utils import generate_invalid_args, generate_valid_args
 from mcp_probe.suites.base import BaseSuite, check
 from mcp_probe.types import Severity
 
 logger = logging.getLogger(__name__)
 
 try:
-    import jsonschema
+    import jsonschema  # type: ignore[import-untyped]
+
     HAS_JSONSCHEMA = True
 except ImportError:
     HAS_JSONSCHEMA = False

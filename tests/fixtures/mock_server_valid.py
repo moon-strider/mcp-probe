@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import sys
 
-
 SERVER_INFO = {"name": "mock-valid", "version": "1.0.0"}
 CAPABILITIES = {
     "tools": {},
@@ -74,11 +73,14 @@ def _handle_request(msg):
         return None
 
     if method == "initialize":
-        return _response(msg_id, {
-            "protocolVersion": "2025-11-25",
-            "capabilities": CAPABILITIES,
-            "serverInfo": SERVER_INFO,
-        })
+        return _response(
+            msg_id,
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": CAPABILITIES,
+                "serverInfo": SERVER_INFO,
+            },
+        )
 
     if method == "ping":
         return _response(msg_id, {})
@@ -93,9 +95,12 @@ def _handle_request(msg):
             message = arguments.get("message")
             if message is None:
                 return _error(msg_id, -32602, "Missing required argument: message")
-            return _response(msg_id, {
-                "content": [{"type": "text", "text": str(message)}],
-            })
+            return _response(
+                msg_id,
+                {
+                    "content": [{"type": "text", "text": str(message)}],
+                },
+            )
         if name == "add":
             a = arguments.get("a")
             b = arguments.get("b")
@@ -103,9 +108,12 @@ def _handle_request(msg):
                 return _error(msg_id, -32602, "Missing required arguments: a, b")
             if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
                 return _error(msg_id, -32602, "Arguments a and b must be numbers")
-            return _response(msg_id, {
-                "content": [{"type": "text", "text": str(a + b)}],
-            })
+            return _response(
+                msg_id,
+                {
+                    "content": [{"type": "text", "text": str(a + b)}],
+                },
+            )
         return _error(msg_id, -32602, f"Unknown tool: {name}")
 
     if method == "resources/list":
@@ -114,9 +122,12 @@ def _handle_request(msg):
     if method == "resources/read":
         uri = params.get("uri", "")
         if uri == "test://data":
-            return _response(msg_id, {
-                "contents": [{"uri": uri, "text": "hello world", "mimeType": "text/plain"}],
-            })
+            return _response(
+                msg_id,
+                {
+                    "contents": [{"uri": uri, "text": "hello world", "mimeType": "text/plain"}],
+                },
+            )
         return _error(msg_id, -32602, f"Unknown resource: {uri}")
 
     if method == "resources/subscribe":
@@ -132,12 +143,17 @@ def _handle_request(msg):
         name = params.get("name", "")
         if name == "greeting":
             greeting_name = params.get("arguments", {}).get("name", "World")
-            return _response(msg_id, {
-                "messages": [{
-                    "role": "user",
-                    "content": {"type": "text", "text": f"Hello, {greeting_name}!"},
-                }],
-            })
+            return _response(
+                msg_id,
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {"type": "text", "text": f"Hello, {greeting_name}!"},
+                        }
+                    ],
+                },
+            )
         return _error(msg_id, -32602, f"Unknown prompt: {name}")
 
     return _error(msg_id, -32601, f"Method not found: {method}")

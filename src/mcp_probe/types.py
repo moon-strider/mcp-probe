@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-
 SPEC_VERSION = "2025-11-25"
 PROBE_VERSION = "0.1.0"
 DEFAULT_TIMEOUT = 30
