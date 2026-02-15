@@ -54,7 +54,6 @@ def discover_oauth_metadata(auth_server_url: str) -> dict | None:
 
 def _start_callback_server(port: int, timeout: float = 120.0) -> tuple[str, str]:
     result: dict[str, str] = {}
-    ready = Event()
 
     class CallbackHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -70,7 +69,6 @@ def _start_callback_server(port: int, timeout: float = 120.0) -> tuple[str, str]
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(b"<html><body><h1>Authorization complete.</h1><p>You can close this tab.</p></body></html>")
-            ready.set()
 
         def log_message(self, format: str, *args: object) -> None:
             pass
