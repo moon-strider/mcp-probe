@@ -66,9 +66,7 @@ class Runner:
         if suites_to_run is not None:
             for name in suites_to_run:
                 if name not in _VALID_SUITE_NAMES:
-                    raise ValueError(
-                        f"Unknown suite '{name}'. " f"Valid suites: {', '.join(sorted(_VALID_SUITE_NAMES))}"
-                    )
+                    raise ValueError(f"Unknown suite '{name}'. Valid suites: {', '.join(sorted(_VALID_SUITE_NAMES))}")
             self._explicitly_requested = set(suites_to_run)
 
         self._tools: list[dict] = []

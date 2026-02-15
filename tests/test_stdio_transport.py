@@ -46,7 +46,7 @@ def noisy_script():
 @pytest.fixture
 def hang_script():
     f = tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False)
-    f.write("import signal, time\n" "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n" "while True: time.sleep(1)\n")
+    f.write("import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nwhile True: time.sleep(1)\n")
     f.close()
     return f.name
 

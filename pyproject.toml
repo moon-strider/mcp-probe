@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.28.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -29,15 +29,15 @@ Documentation = "https://github.com/moon-strider/mcp-probe#readme"
 Issues = "https://github.com/moon-strider/mcp-probe/issues"
 
 [project.optional-dependencies]
-full = ["jsonschema>=4.0"]
+full = ["jsonschema==4.23.0"]
 dev = [
-    "pytest",
-    "pytest-asyncio",
-    "pytest-cov",
-    "ruff",
-    "mypy",
-    "build",
-    "twine",
+    "pytest==8.3.5",
+    "pytest-asyncio==1.3.0",
+    "pytest-cov==7.0.0",
+    "ruff==0.15.1",
+    "mypy==1.19.1",
+    "build==1.2.2.post1",
+    "twine==6.2.0",
 ]
 
 [tool.ruff]

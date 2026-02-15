@@ -126,7 +126,7 @@ class NotificationsSuite(BaseSuite):
             values = [e.get("progress", 0) for e in entries]
             for i in range(1, len(values)):
                 if values[i] < values[i - 1]:
-                    issues.append(f"token {token}: progress not monotonic ({values[i-1]} -> {values[i]})")
+                    issues.append(f"token {token}: progress not monotonic ({values[i - 1]} -> {values[i]})")
         if issues:
             return self.fail_check("; ".join(issues[:5]))
         return self.pass_check(f"Validated {len(notifs)} progress notification(s)")
