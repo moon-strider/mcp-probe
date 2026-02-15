@@ -9,9 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from functools import partial
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from threading import Event
 
 logger = logging.getLogger(__name__)
 

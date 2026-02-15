@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -45,10 +45,14 @@ class CheckResult:
     details: str | None = None
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d["status"] = self.status.value
-        d["severity"] = self.severity.value
-        return d
+        return {
+            "id": self.check_id,
+            "description": self.description,
+            "status": self.status.value,
+            "severity": self.severity.value,
+            "duration_ms": self.duration_ms,
+            "details": self.details,
+        }
 
 
 @dataclass

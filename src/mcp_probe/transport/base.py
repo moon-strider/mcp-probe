@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import abc
-from typing import Self
+import sys
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing import TypeVar
+    Self = TypeVar("Self", bound="BaseTransport")
 
 
 class BaseTransport(abc.ABC):
