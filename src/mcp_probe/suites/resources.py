@@ -28,9 +28,9 @@ class ResourcesSuite(BaseSuite):
         if not self._resources:
             self.skip("No resources discovered")
         issues: list[str] = []
-        identifiers = [item.get("name") for item in self._resources]
+        identifiers = [item.get("uri") for item in self._resources]
         if len(set(str(x) for x in identifiers)) != len(identifiers):
-            issues.append("Duplicate names in listing")
+            issues.append("Duplicate resource URIs in listing")
         for r in self._resources:
             if not isinstance(r.get("uri"), str) or not r["uri"]:
                 issues.append(f"resource missing 'uri': {r}")
@@ -67,10 +67,7 @@ class ResourcesSuite(BaseSuite):
     async def check_res_004(self):
         if not self._client.active:
             self.skip("Negative resource probe requires --active")
-        try:
-            resp = await self._client.read_resource("nonexistent://fake-resource-uri")
-        except Exception as exc:
-            return self.fail_check(f"Server crashed on nonexistent resource: {exc}")
+        resp = await self._client.read_resource("nonexistent://fake-resource-uri")
         if "error" in resp:
             return self.pass_check("Server returned error for nonexistent resource")
         return self.fail_check("Server did not return error for nonexistent resource")

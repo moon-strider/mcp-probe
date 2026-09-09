@@ -34,6 +34,22 @@ class PromptsSuite(BaseSuite):
         for p in self._prompts:
             if not isinstance(p.get("name"), str) or not p["name"]:
                 issues.append(f"prompt missing 'name': {p}")
+            if "description" in p and not isinstance(p["description"], str):
+                issues.append("Prompt description must be a string")
+            arguments = p.get("arguments", [])
+            if not isinstance(arguments, list):
+                issues.append("Prompt arguments must be an array")
+                continue
+            names: set[str] = set()
+            for argument in arguments:
+                if not isinstance(argument, dict) or not isinstance(argument.get("name"), str) or not argument["name"]:
+                    issues.append("Prompt argument requires a nonempty name")
+                    continue
+                if argument["name"] in names:
+                    issues.append("Duplicate prompt argument name")
+                names.add(argument["name"])
+                if "required" in argument and type(argument["required"]) is not bool:
+                    issues.append("Prompt argument required must be boolean")
         if issues:
             return self.fail_check("; ".join(issues[:5]))
         return self.pass_check(f"All {len(self._prompts)} prompts have required fields")

@@ -6,6 +6,7 @@ import tempfile
 
 import pytest
 
+from mcp_probe.protocol import ProtocolError
 from mcp_probe.transport.stdio import StdioTransport
 
 
@@ -79,9 +80,9 @@ async def test_non_json_lines(noisy_script):
     try:
         msg = {"jsonrpc": "2.0", "id": 1, "method": "test"}
         await t.send(msg)
-        resp = await t.receive(5.0)
-        assert resp == msg
-        assert t.non_json_lines >= 1
+        with pytest.raises(ProtocolError):
+            await t.receive(5.0)
+        assert t.non_json_lines == 1
     finally:
         await t.stop()
 

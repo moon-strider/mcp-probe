@@ -75,7 +75,7 @@ class ToolsSuite(BaseSuite):
                 if not self._client.modern and tool[key].get("type") != "object":
                     return self.fail_check("Legacy tool schemas require type=object")
         try:
-            import jsonschema  # noqa: F401
+            import jsonschema  # type: ignore[import-untyped]  # noqa: F401
         except ImportError:
             return self.info_check("Basic schema shape checked; install the full extra for JSON Schema validation")
         return self.pass_check("Schemas validated offline")

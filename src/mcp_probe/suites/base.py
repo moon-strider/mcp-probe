@@ -5,6 +5,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
+from typing import NoReturn
 
 from mcp_probe.client import MCPClient
 from mcp_probe.types import CheckResult, Severity, Status, SuiteResult
@@ -43,7 +44,7 @@ class BaseSuite(abc.ABC):
 
     def _get_checks(self) -> list[tuple[dict, Callable]]:
         checks: list[tuple[dict, Callable]] = []
-        for attr_name in dir(self):
+        for attr_name in dir(type(self)):
             attr = getattr(self, attr_name, None)
             if callable(attr) and hasattr(attr, _CHECK_ATTR):
                 meta = getattr(attr, _CHECK_ATTR)
@@ -99,12 +100,19 @@ class BaseSuite(abc.ABC):
                         status=Status.FAIL,
                         severity=severity,
                         duration_ms=elapsed,
-                        details=str(exc),
+                        details=(
+                            "Check exceeded its total deadline" if isinstance(exc, asyncio.TimeoutError) else str(exc)
+                        ),
+                        error_kind=(
+                            "transport"
+                            if isinstance(exc, (ConnectionError, OSError, asyncio.TimeoutError))
+                            else "protocol"
+                        ),
                     )
                 )
         return SuiteResult(name=self.name, checks=results)
 
-    def skip(self, reason: str = "") -> CheckResult:
+    def skip(self, reason: str = "") -> NoReturn:
         raise SkipCheckError(reason)
 
     def pass_check(self, details: str | None = None) -> CheckResult:

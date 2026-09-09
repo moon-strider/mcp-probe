@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mcp_probe.schema_utils import generate_invalid_args, generate_valid_args, is_complex_schema
+from mcp_probe.schema_utils import generate_invalid_args, generate_valid_args, is_complex_schema, matches_schema
 
 
 def test_valid_args_string():
@@ -80,7 +80,7 @@ def test_invalid_args_with_required():
 def test_invalid_args_without_required():
     schema = {"type": "object", "properties": {"name": {"type": "string"}}}
     args = generate_invalid_args(schema)
-    assert "__invalid_field__" in args
+    assert matches_schema(args, schema) is False
 
 
 def test_is_complex_schema():

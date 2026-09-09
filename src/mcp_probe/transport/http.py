@@ -32,7 +32,7 @@ class HttpTransport(BaseTransport):
         self._custom_headers = headers or {}
         self._timeout = timeout
         self.session_id: str | None = None
-        self._pending_messages: asyncio.Queue = asyncio.Queue(maxsize=MAX_MESSAGES)
+        self._pending_messages: asyncio.Queue[dict | Exception] = asyncio.Queue(maxsize=MAX_MESSAGES)
         self._jobs: set[asyncio.Task] = set()
         self._http: httpx.AsyncClient | None = None
 

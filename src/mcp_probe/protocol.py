@@ -119,7 +119,7 @@ def validate_tool_result(result: Any, modern: bool = False) -> None:
 
 def validate_cache_metadata(result: dict) -> None:
     ttl = result.get("ttlMs")
-    if type(ttl) not in (int, float) or not math.isfinite(ttl) or ttl < 0:
+    if not isinstance(ttl, (int, float)) or isinstance(ttl, bool) or not math.isfinite(ttl) or ttl < 0:
         raise ProtocolError("Cacheable result requires nonnegative finite ttlMs")
     if result.get("cacheScope") not in ("public", "private"):
         raise ProtocolError("Cacheable result requires public or private cacheScope")

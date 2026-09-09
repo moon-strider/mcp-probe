@@ -16,7 +16,7 @@ def is_complex_schema(schema: dict) -> bool:
 
 def _validator(schema: dict):
     try:
-        import jsonschema
+        import jsonschema  # type: ignore[import-untyped]
         from referencing import Registry
         from referencing.exceptions import NoSuchResource
     except ImportError:
@@ -27,7 +27,8 @@ def _validator(schema: dict):
 
     cls = jsonschema.validators.validator_for(schema, default=jsonschema.Draft202012Validator)
     cls.check_schema(schema)
-    return cls(schema, registry=Registry(retrieve=no_remote))
+    registry_factory: Any = Registry
+    return cls(schema, registry=registry_factory(retrieve=no_remote))
 
 
 def schema_error(schema: Any) -> str | None:
@@ -74,11 +75,15 @@ def generate_invalid_args(schema: dict) -> dict | None:
         key = "__invalid_field__"
         while key in schema.get("properties", {}):
             key += "_"
-        return {key: "invalid"}
+        candidate = {key: "invalid"}
+        verdict = matches_schema(candidate, schema)
+        if verdict is False or (verdict is None and not schema.get("patternProperties")):
+            return candidate
     for name, prop in schema.get("properties", {}).items():
         if not isinstance(prop, dict):
             continue
-        for candidate in (None, [], {}, True, 1, "invalid"):
+        candidates: list[Any] = [None, [], {}, True, 1, "invalid"]
+        for candidate in candidates:
             args = {name: candidate}
             if matches_schema(args, schema) is False:
                 return args

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from copy import deepcopy
 
 from mcp_probe.protocol import (
@@ -32,7 +33,7 @@ class MCPClient:
         tool_cases: dict[str, dict] | None = None,
         max_pages: int = MAX_PAGES,
     ) -> None:
-        if timeout <= 0 or max_pages < 1:
+        if not math.isfinite(timeout) or timeout <= 0 or max_pages < 1:
             raise ValueError("Timeout and page limit must be positive")
         if protocol_version not in SUPPORTED_VERSIONS:
             raise ValueError("Unsupported protocol version")
@@ -129,7 +130,11 @@ class MCPClient:
             versions = result.get("supportedVersions")
             if not isinstance(versions, list) or self.protocol_version not in versions:
                 raise ProtocolError("Server does not advertise the requested protocol version")
-            self.server_info = result.get("_meta", {}).get("io.modelcontextprotocol/serverInfo")
+            validate_cache_metadata(result)
+            meta = result.get("_meta", {})
+            if not isinstance(meta, dict):
+                raise ProtocolError("Discovery metadata must be an object")
+            self.server_info = meta.get("io.modelcontextprotocol/serverInfo")
         else:
             response = await self._send_request(
                 "initialize",
