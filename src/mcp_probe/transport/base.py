@@ -13,6 +13,7 @@ else:
 
 class BaseTransport(abc.ABC):
     _running: bool = False
+    protocol_version: str | None = None
 
     @property
     def is_running(self) -> bool:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from mcp_probe.protocol import ProtocolError, validate_content
 from mcp_probe.suites.base import BaseSuite, check
 from mcp_probe.types import Severity
 
@@ -18,29 +19,18 @@ class PromptsSuite(BaseSuite):
 
     @check("PROMPT-001", "prompts/list returns a list of prompts", Severity.CRITICAL)
     async def check_prompt_001(self):
-        resp = await self._client._send_request("prompts/list")
-        result = resp.get("result", {})
-        prompts = result.get("prompts")
-        if prompts is None:
-            return self.fail_check(f"No 'prompts' key in result: {list(result.keys())}")
-        if not isinstance(prompts, list):
-            return self.fail_check(f"'prompts' is not a list: {type(prompts).__name__}")
-        self._first_page_had_cursor = "nextCursor" in result
-        if self._first_page_had_cursor:
-            cursor = result["nextCursor"]
-            while cursor:
-                resp2 = await self._client._send_request("prompts/list", {"cursor": cursor})
-                r2 = resp2.get("result", {})
-                prompts.extend(r2.get("prompts", []))
-                cursor = r2.get("nextCursor")
-        self._prompts = prompts
-        return self.pass_check(f"Found {len(prompts)} prompts")
+        self._prompts = await self._client.list_prompts()
+        self._first_page_had_cursor = self._client.page_counts.get("prompts/list", 0) > 1
+        return self.pass_check(f"Found {len(self._prompts)} prompts")
 
-    @check("PROMPT-002", "Each prompt has name and description", Severity.ERROR)
+    @check("PROMPT-002", "Prompt names and optional descriptions are valid", Severity.ERROR)
     async def check_prompt_002(self):
         if not self._prompts:
             self.skip("No prompts discovered")
         issues: list[str] = []
+        identifiers = [item.get("name") for item in self._prompts]
+        if len(set(str(x) for x in identifiers)) != len(identifiers):
+            issues.append("Duplicate names in listing")
         for p in self._prompts:
             if not isinstance(p.get("name"), str) or not p["name"]:
                 issues.append(f"prompt missing 'name': {p}")
@@ -50,6 +40,8 @@ class PromptsSuite(BaseSuite):
 
     @check("PROMPT-003", "prompts/get returns messages", Severity.ERROR)
     async def check_prompt_003(self):
+        if not self._client.active:
+            self.skip("Content retrieval requires --active")
         if not self._prompts:
             self.skip("No prompts discovered")
         prompt = self._prompts[0]
@@ -70,6 +62,10 @@ class PromptsSuite(BaseSuite):
             return self.fail_check(f"No 'messages' in get_prompt response for '{name}'")
         if not isinstance(messages, list):
             return self.fail_check(f"'messages' is not a list: {type(messages).__name__}")
+        for message in messages:
+            if not isinstance(message, dict) or message.get("role") not in ("user", "assistant"):
+                raise ProtocolError("Prompt message requires a valid role")
+            validate_content(message.get("content"))
         return self.pass_check(f"Prompt '{name}' returned {len(messages)} message(s)")
 
     @check("PROMPT-004", "prompts/list pagination works", Severity.WARNING)

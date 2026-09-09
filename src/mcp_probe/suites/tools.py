@@ -1,22 +1,13 @@
 from __future__ import annotations
 
-import logging
 import re
 
-from mcp_probe.schema_utils import generate_invalid_args, generate_valid_args
+from mcp_probe.protocol import ProtocolError, result_object, validate_tool_result
+from mcp_probe.schema_utils import generate_invalid_args, generate_valid_args, matches_schema, schema_error
 from mcp_probe.suites.base import BaseSuite, check
 from mcp_probe.types import Severity
 
-logger = logging.getLogger(__name__)
-
-try:
-    import jsonschema  # type: ignore[import-untyped]
-
-    HAS_JSONSCHEMA = True
-except ImportError:
-    HAS_JSONSCHEMA = False
-
-_TOOL_NAME_RE = re.compile(r"^[a-z0-9_-]+$")
+_TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
 class ToolsSuite(BaseSuite):
@@ -25,131 +16,154 @@ class ToolsSuite(BaseSuite):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._tools: list[dict] = []
-        self._first_page_had_cursor: bool = False
+        self._first_page_had_cursor = False
 
-    @check("TOOL-001", "tools/list returns a list of tools", Severity.CRITICAL)
+    def _selected(self) -> list[dict]:
+        selected = [t for t in self._tools if t.get("name") in self._client.allowed_tools]
+        if not selected:
+            self.skip("No tool selected; use --tool or --cases to enable calls")
+        return selected
+
+    def _arguments(self, tool: dict) -> dict | None:
+        if tool["name"] in self._client.tool_cases:
+            return self._client.tool_cases[tool["name"]]
+        return generate_valid_args(tool.get("inputSchema", {}))
+
+    @check("TOOL-001", "tools/list returns a bounded list", Severity.CRITICAL)
     async def check_tool_001(self):
-        resp = await self._client._send_request("tools/list")
-        result = resp.get("result", {})
-        tools = result.get("tools")
-        if tools is None:
-            return self.fail_check(f"No 'tools' key in result: {list(result.keys())}")
-        if not isinstance(tools, list):
-            return self.fail_check(f"'tools' is not a list: {type(tools).__name__}")
-        self._first_page_had_cursor = "nextCursor" in result
-        if self._first_page_had_cursor:
-            cursor = result["nextCursor"]
-            while cursor:
-                resp2 = await self._client._send_request("tools/list", {"cursor": cursor})
-                r2 = resp2.get("result", {})
-                tools.extend(r2.get("tools", []))
-                cursor = r2.get("nextCursor")
-        self._tools = tools
-        return self.pass_check(f"Found {len(tools)} tools")
+        self._tools = await self._client.list_tools()
+        self._first_page_had_cursor = self._client.page_counts.get("tools/list", 0) > 1
+        missing = self._client.allowed_tools - {t.get("name") for t in self._tools}
+        if missing:
+            return self.fail_check("Selected tools were not advertised: " + ", ".join(sorted(missing)))
+        return self.pass_check(f"Found {len(self._tools)} tools")
 
-    @check("TOOL-002", "Each tool has name, description, inputSchema", Severity.CRITICAL)
+    @check("TOOL-002", "Tool metadata has valid required fields", Severity.CRITICAL)
     async def check_tool_002(self):
         if not self._tools:
             self.skip("No tools discovered")
-        missing: list[str] = []
-        for t in self._tools:
-            name = t.get("name")
-            if not isinstance(name, str) or not name:
-                missing.append(f"tool missing 'name': {t}")
-            if not isinstance(t.get("inputSchema"), dict):
-                missing.append(f"tool '{name}' missing 'inputSchema' (dict)")
-        if missing:
-            return self.fail_check("; ".join(missing[:5]))
-        return self.pass_check(f"All {len(self._tools)} tools have required fields")
+        names: set[str] = set()
+        for tool in self._tools:
+            name = tool.get("name")
+            if not isinstance(name, str) or not name or name in names:
+                return self.fail_check("Tool names must be nonempty and unique")
+            names.add(name)
+            if not isinstance(tool.get("inputSchema"), dict):
+                return self.fail_check(f"Tool {name!r} requires an inputSchema object")
+            if "description" in tool and not isinstance(tool["description"], str):
+                return self.fail_check(f"Tool {name!r} description must be a string")
+            execution = tool.get("execution", {})
+            if not isinstance(execution, dict) or execution.get("taskSupport", "forbidden") not in (
+                "required",
+                "optional",
+                "forbidden",
+            ):
+                return self.fail_check(f"Tool {name!r} has invalid execution metadata")
+        return self.pass_check(f"Validated {len(names)} tool definitions")
 
-    @check("TOOL-003", "inputSchema is valid JSON Schema", Severity.ERROR)
+    @check("TOOL-003", "Tool input and output schemas are valid", Severity.ERROR)
     async def check_tool_003(self):
         if not self._tools:
             self.skip("No tools discovered")
-        invalid: list[str] = []
-        for t in self._tools:
-            schema = t.get("inputSchema", {})
-            if HAS_JSONSCHEMA:
-                try:
-                    jsonschema.Draft202012Validator.check_schema(schema)
-                except jsonschema.SchemaError as exc:
-                    invalid.append(f"'{t.get('name')}': {exc.message}")
-            else:
-                if not isinstance(schema, dict):
-                    invalid.append(f"'{t.get('name')}': schema is not a dict")
-                elif schema.get("type") == "object" and "properties" not in schema:
-                    invalid.append(f"'{t.get('name')}': object schema without properties")
-        if invalid:
-            return self.fail_check("; ".join(invalid[:5]))
-        suffix = "" if HAS_JSONSCHEMA else " (install jsonschema for full validation)"
-        return self.pass_check(f"All schemas valid{suffix}")
+        for tool in self._tools:
+            for key in ("inputSchema", "outputSchema"):
+                if key not in tool:
+                    continue
+                error = schema_error(tool[key])
+                if error:
+                    return self.fail_check(f"{tool.get('name')!r} {key}: {error}")
+                if not self._client.modern and tool[key].get("type") != "object":
+                    return self.fail_check("Legacy tool schemas require type=object")
+        try:
+            import jsonschema  # noqa: F401
+        except ImportError:
+            return self.info_check("Basic schema shape checked; install the full extra for JSON Schema validation")
+        return self.pass_check("Schemas validated offline")
 
-    @check("TOOL-004", "Tool call with valid arguments succeeds", Severity.ERROR)
+    @check("TOOL-004", "Selected tool calls return valid content", Severity.ERROR)
     async def check_tool_004(self):
-        if not self._tools:
-            self.skip("No tools discovered")
-        for t in self._tools:
-            schema = t.get("inputSchema", {})
-            args = generate_valid_args(schema)
+        checked = 0
+        application_errors = 0
+        for tool in self._selected():
+            if tool.get("execution", {}).get("taskSupport") == "required":
+                continue
+            args = self._arguments(tool)
             if args is None:
                 continue
-            resp = await self._client.call_tool(t["name"], args)
-            if "error" in resp:
-                return self.fail_check(f"Tool '{t['name']}' returned error: {resp['error']}")
-            result = resp.get("result", {})
-            if "content" not in result and not isinstance(result, dict):
-                return self.fail_check(f"Tool '{t['name']}' response has no 'content'")
-            return self.pass_check(f"Tool '{t['name']}' called successfully")
-        self.skip("All tool schemas too complex for auto-generation")
+            if matches_schema(args, tool["inputSchema"]) is False:
+                return self.fail_check(f"Case arguments do not match {tool['name']!r} inputSchema")
+            response = await self._client.call_tool(tool["name"], args)
+            if "error" in response:
+                return self.fail_check(f"Selected tool returned a protocol error: {tool['name']!r}")
+            result = response.get("result")
+            try:
+                validate_tool_result(result, modern=self._client.modern is True)
+            except ProtocolError as exc:
+                return self.fail_check(str(exc))
+            if result.get("isError"):
+                application_errors += 1
+            elif "outputSchema" in tool:
+                if "structuredContent" not in result:
+                    return self.fail_check("Tool with outputSchema omitted structuredContent")
+                valid = matches_schema(result["structuredContent"], tool["outputSchema"])
+                if valid is False:
+                    return self.fail_check("structuredContent does not match outputSchema")
+                if valid is None:
+                    return self.warn_check(
+                        "Could not validate outputSchema offline; install full or resolve local references"
+                    )
+            checked += 1
+        if not checked:
+            self.skip("Selected schemas need explicit --cases or require task execution")
+        if application_errors:
+            return self.warn_check(
+                f"{checked} results are well formed; {application_errors} tools reported application errors"
+            )
+        return self.pass_check(f"Validated {checked} selected tool result(s)")
 
-    @check("TOOL-005", "Tool call with invalid arguments returns error", Severity.ERROR)
+    @check("TOOL-005", "Selected tools reject schema-invalid arguments", Severity.ERROR)
     async def check_tool_005(self):
-        if not self._tools:
-            self.skip("No tools discovered")
-        t = self._tools[0]
-        schema = t.get("inputSchema", {})
-        args = generate_invalid_args(schema)
-        try:
-            resp = await self._client.call_tool(t["name"], args)
-        except Exception as exc:
-            return self.fail_check(f"Server crashed on invalid args: {exc}")
-        if "error" in resp:
-            return self.pass_check(f"Server returned error for invalid args on '{t['name']}'")
-        result = resp.get("result", {})
-        is_error_content = False
-        for item in result.get("content", []):
-            if item.get("type") == "text" and "error" in item.get("text", "").lower():
-                is_error_content = True
-        if result.get("isError"):
-            return self.pass_check(f"Server returned isError=true for invalid args on '{t['name']}'")
-        if is_error_content:
-            return self.pass_check(f"Server returned error content for invalid args on '{t['name']}'")
-        return self.warn_check(f"Server accepted invalid args without error on '{t['name']}'")
+        if not self._client.active:
+            self.skip("Requires --active and explicit tool selection")
+        checked = 0
+        for tool in self._selected():
+            if tool.get("execution", {}).get("taskSupport") == "required":
+                continue
+            args = generate_invalid_args(tool.get("inputSchema", {}))
+            if args is None:
+                continue
+            response = await self._client.call_tool(tool["name"], args)
+            if "error" not in response:
+                result = result_object(response)
+                validate_tool_result(result, modern=self._client.modern)
+                if result.get("isError") is not True:
+                    return self.fail_check(f"Tool {tool['name']!r} accepted schema-invalid arguments")
+            checked += 1
+        if not checked:
+            self.skip("Could not construct a provably invalid argument object")
+        return self.pass_check(f"Validated argument rejection for {checked} tool(s)")
 
-    @check("TOOL-006", "Nonexistent tool returns error", Severity.WARNING)
+    @check("TOOL-006", "Nonexistent tool returns an error", Severity.WARNING)
     async def check_tool_006(self):
-        try:
-            resp = await self._client.call_tool("__nonexistent_tool_name__", {})
-        except Exception as exc:
-            return self.fail_check(f"Server crashed on nonexistent tool: {exc}")
-        if "error" in resp:
-            return self.pass_check("Server returned error for nonexistent tool")
-        result = resp.get("result", {})
-        if result.get("isError"):
-            return self.pass_check("Server returned isError=true for nonexistent tool")
-        return self.fail_check("Server did not return error for nonexistent tool")
+        if not self._client.active:
+            self.skip("Requires --active")
+        name = "__mcp_probe_nonexistent_tool__"
+        if any(t.get("name") == name for t in self._tools):
+            self.skip("Reserved probe name is advertised by the server")
+        response = await self._client.call_tool(name, {})
+        if "error" in response or result_object(response).get("isError") is True:
+            return self.pass_check("Server rejected unknown tool")
+        return self.fail_check("Server accepted an unknown tool")
 
-    @check("TOOL-007", "Tool names follow naming convention", Severity.INFO)
+    @check("TOOL-007", "Tool names follow the naming recommendation", Severity.WARNING)
     async def check_tool_007(self):
-        if not self._tools:
-            self.skip("No tools discovered")
-        non_conforming = [t["name"] for t in self._tools if not _TOOL_NAME_RE.match(t.get("name", ""))]
-        if non_conforming:
-            return self.info_check(f"Non-standard names: {', '.join(non_conforming[:10])}")
-        return self.pass_check("All tool names follow [a-z0-9_-] convention")
+        invalid = [t.get("name") for t in self._tools if not _TOOL_NAME_RE.fullmatch(str(t.get("name", "")))]
+        if invalid:
+            return self.warn_check("Names should use letters, digits, underscore, hyphen or dot, within 128 characters")
+        return self.pass_check("Tool names follow the naming recommendation")
 
-    @check("TOOL-008", "tools/list pagination works", Severity.WARNING)
+    @check("TOOL-008", "tools/list pagination terminates", Severity.WARNING)
     async def check_tool_008(self):
         if not self._first_page_had_cursor:
-            self.skip("Server returned all tools in a single page")
-        return self.pass_check("Pagination verified during TOOL-001")
+            self.skip("Only one page was returned")
+        return self.pass_check("Pagination completed without repeated cursors")

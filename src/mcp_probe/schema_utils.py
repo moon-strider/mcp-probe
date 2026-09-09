@@ -1,67 +1,154 @@
+"""Conservative fixture generation with offline, optional JSON Schema validation."""
+
 from __future__ import annotations
 
-_COMPLEX_KEYWORDS = frozenset({"$ref", "anyOf", "oneOf", "allOf", "if"})
+import json
+import math
+from copy import deepcopy
+from typing import Any
+
+_COMPLEX_KEYWORDS = frozenset({"$ref", "$dynamicRef", "anyOf", "oneOf", "allOf", "if", "not"})
 
 
 def is_complex_schema(schema: dict) -> bool:
     return bool(_COMPLEX_KEYWORDS & schema.keys())
 
 
-def generate_valid_args(schema: dict) -> dict | None:
-    if is_complex_schema(schema):
+def _validator(schema: dict):
+    try:
+        import jsonschema
+        from referencing import Registry
+        from referencing.exceptions import NoSuchResource
+    except ImportError:
         return None
-    return _generate_value(schema)  # type: ignore[return-value]
+
+    def no_remote(uri):
+        raise NoSuchResource(ref=uri)
+
+    cls = jsonschema.validators.validator_for(schema, default=jsonschema.Draft202012Validator)
+    cls.check_schema(schema)
+    return cls(schema, registry=Registry(retrieve=no_remote))
 
 
-def generate_invalid_args(schema: dict) -> dict:
+def schema_error(schema: Any) -> str | None:
+    if not isinstance(schema, dict):
+        return "Schema must be an object"
+    if len(json.dumps(schema)) > 65536:
+        return "Schema exceeds the validation size limit"
+    try:
+        validator = _validator(schema)
+    except Exception:
+        return "Invalid JSON Schema"
+    if validator is None:
+        return None
+    return None
+
+
+def matches_schema(value: Any, schema: dict) -> bool | None:
+    """None means validation is unavailable; remote references are never fetched."""
+    try:
+        validator = _validator(schema)
+        return None if validator is None else validator.is_valid(value)
+    except Exception:
+        return None
+
+
+def generate_valid_args(schema: dict) -> dict | None:
+    try:
+        value = _generate_value(schema, 0)
+        if not isinstance(value, dict):
+            return None
+        verdict = matches_schema(value, schema)
+        if verdict is False:
+            return None
+        return value
+    except (ValueError, TypeError, KeyError, IndexError, OverflowError, RecursionError):
+        return None
+
+
+def generate_invalid_args(schema: dict) -> dict | None:
     required = schema.get("required", [])
     if required:
-        return {}
-    return {"__invalid_field__": "should_not_be_accepted"}
-
-
-def _generate_value(schema: dict) -> object:
-    if is_complex_schema(schema):
-        return None
-
-    if "enum" in schema:
-        return schema["enum"][0]
-
-    typ = schema.get("type")
-
-    if typ == "string":
-        return "test"
-
-    if typ == "integer":
-        return schema.get("minimum", 1)
-
-    if typ == "number":
-        return schema.get("minimum", 1)
-
-    if typ == "boolean":
-        return True
-
-    if typ == "array":
-        min_items = schema.get("minItems", 0)
-        if min_items > 0 and "items" in schema:
-            item = _generate_value(schema["items"])
-            return [item] * min_items
-        return []
-
-    if typ == "object" or "properties" in schema:
-        return _generate_object(schema)
-
-    return "test"
-
-
-def _generate_object(schema: dict) -> dict | None:
-    properties = schema.get("properties", {})
-    required = set(schema.get("required", []))
-    result: dict = {}
-    for name, prop_schema in properties.items():
-        if name not in required:
+        return {} if matches_schema({}, schema) is not True else None
+    if schema.get("additionalProperties") is False:
+        key = "__invalid_field__"
+        while key in schema.get("properties", {}):
+            key += "_"
+        return {key: "invalid"}
+    for name, prop in schema.get("properties", {}).items():
+        if not isinstance(prop, dict):
             continue
-        if is_complex_schema(prop_schema):
-            return None
-        result[name] = _generate_value(prop_schema)
-    return result
+        for candidate in (None, [], {}, True, 1, "invalid"):
+            args = {name: candidate}
+            if matches_schema(args, schema) is False:
+                return args
+    return None
+
+
+def _generate_value(schema: dict, depth: int) -> Any:
+    if depth > 8 or not isinstance(schema, dict) or is_complex_schema(schema):
+        raise ValueError("Fixture needs an explicit case")
+    supported = {
+        "type",
+        "properties",
+        "required",
+        "additionalProperties",
+        "items",
+        "minItems",
+        "maxItems",
+        "enum",
+        "const",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "minLength",
+        "maxLength",
+        "title",
+        "description",
+        "default",
+        "examples",
+        "$schema",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+    }
+    if set(schema) - supported:
+        raise ValueError("Unsupported generation constraint")
+    if "const" in schema:
+        return deepcopy(schema["const"])
+    if "enum" in schema:
+        return deepcopy(schema["enum"][0])
+    kind = schema.get("type")
+    if kind == "object" or "properties" in schema:
+        props = schema.get("properties", {})
+        return {name: _generate_value(props[name], depth + 1) for name in schema.get("required", [])}
+    if kind == "string":
+        minimum = max(0, schema.get("minLength", 0))
+        maximum = schema.get("maxLength", 4096)
+        if minimum > min(maximum, 4096):
+            raise ValueError("String bounds")
+        return "test"[:maximum] if minimum <= 4 else "x" * minimum
+    if kind in ("integer", "number"):
+        lower = schema.get("minimum", -1e6)
+        upper = schema.get("maximum", 1e6)
+        if "exclusiveMinimum" in schema:
+            lower = max(lower, math.floor(schema["exclusiveMinimum"]) + 1)
+        if "exclusiveMaximum" in schema:
+            upper = min(upper, math.ceil(schema["exclusiveMaximum"]) - 1)
+        value = max(lower, min(1, upper))
+        if kind == "integer":
+            value = math.ceil(value)
+        if value > upper or not math.isfinite(value):
+            raise ValueError("Numeric bounds")
+        return value
+    if kind == "boolean":
+        return True
+    if kind == "null":
+        return None
+    if kind == "array":
+        count = schema.get("minItems", 0)
+        if count > min(64, schema.get("maxItems", 64)) or count < 0:
+            raise ValueError("Array bounds")
+        return [_generate_value(schema.get("items", {}), depth + 1) for _ in range(count)]
+    raise ValueError("Schema needs an explicit case")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -58,7 +59,7 @@ class BaseSuite(abc.ABC):
             severity = meta["severity"]
             start = time.perf_counter()
             try:
-                result = await method()
+                result = await asyncio.wait_for(method(), timeout=self._timeout)
                 elapsed = (time.perf_counter() - start) * 1000
                 if isinstance(result, CheckResult):
                     result.check_id = check_id

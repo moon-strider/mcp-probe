@@ -9,6 +9,7 @@ description = "CLI validator for Model Context Protocol (MCP) server compliance"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
+dependencies = ["httpx>=0.28.1,<0.29"]
 keywords = ["mcp", "model-context-protocol", "validator", "testing", "cli"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -54,3 +55,5 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+asyncio_default_fixture_loop_scope = "function"

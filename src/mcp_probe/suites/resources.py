@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from mcp_probe.protocol import validate_cache_metadata, validate_resource_content
 from mcp_probe.suites.base import BaseSuite, check
 from mcp_probe.types import Severity
 
@@ -18,29 +19,18 @@ class ResourcesSuite(BaseSuite):
 
     @check("RES-001", "resources/list returns a list of resources", Severity.CRITICAL)
     async def check_res_001(self):
-        resp = await self._client._send_request("resources/list")
-        result = resp.get("result", {})
-        resources = result.get("resources")
-        if resources is None:
-            return self.fail_check(f"No 'resources' key in result: {list(result.keys())}")
-        if not isinstance(resources, list):
-            return self.fail_check(f"'resources' is not a list: {type(resources).__name__}")
-        self._first_page_had_cursor = "nextCursor" in result
-        if self._first_page_had_cursor:
-            cursor = result["nextCursor"]
-            while cursor:
-                resp2 = await self._client._send_request("resources/list", {"cursor": cursor})
-                r2 = resp2.get("result", {})
-                resources.extend(r2.get("resources", []))
-                cursor = r2.get("nextCursor")
-        self._resources = resources
-        return self.pass_check(f"Found {len(resources)} resources")
+        self._resources = await self._client.list_resources()
+        self._first_page_had_cursor = self._client.page_counts.get("resources/list", 0) > 1
+        return self.pass_check(f"Found {len(self._resources)} resources")
 
     @check("RES-002", "Each resource has uri and name", Severity.ERROR)
     async def check_res_002(self):
         if not self._resources:
             self.skip("No resources discovered")
         issues: list[str] = []
+        identifiers = [item.get("name") for item in self._resources]
+        if len(set(str(x) for x in identifiers)) != len(identifiers):
+            issues.append("Duplicate names in listing")
         for r in self._resources:
             if not isinstance(r.get("uri"), str) or not r["uri"]:
                 issues.append(f"resource missing 'uri': {r}")
@@ -55,6 +45,8 @@ class ResourcesSuite(BaseSuite):
 
     @check("RES-003", "resources/read returns content", Severity.ERROR)
     async def check_res_003(self):
+        if not self._client.active:
+            self.skip("Content retrieval requires --active")
         if not self._resources:
             self.skip("No resources discovered")
         uri = self._resources[0]["uri"]
@@ -63,12 +55,18 @@ class ResourcesSuite(BaseSuite):
             return self.fail_check(f"Error reading '{uri}': {resp['error']}")
         result = resp.get("result", {})
         contents = result.get("contents")
-        if contents is None:
+        if not isinstance(contents, list):
             return self.fail_check(f"No 'contents' in read response for '{uri}'")
+        for item in contents:
+            validate_resource_content(item)
+        if self._client.modern:
+            validate_cache_metadata(result)
         return self.pass_check(f"Read '{uri}' returned {len(contents)} content item(s)")
 
     @check("RES-004", "Nonexistent resource returns error", Severity.WARNING)
     async def check_res_004(self):
+        if not self._client.active:
+            self.skip("Negative resource probe requires --active")
         try:
             resp = await self._client.read_resource("nonexistent://fake-resource-uri")
         except Exception as exc:

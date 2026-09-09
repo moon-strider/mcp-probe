@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import logging
+import math
 
 from mcp_probe.client import MCPClient
 from mcp_probe.suites.base import BaseSuite, check
@@ -44,22 +44,11 @@ class NotificationsSuite(BaseSuite):
 
     @check("NOTIF-001", "Server accepts notifications/initialized", Severity.CRITICAL)
     async def check_notif_001(self):
-        try:
-            resp = await self._client.send_raw(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 7001,
-                    "method": "ping",
-                }
-            )
-            if resp is not None:
-                return self.pass_check("Server responds after notifications/initialized")
-        except asyncio.TimeoutError:
-            pass
-        resp = await self._client._send_request("tools/list")
-        if "result" in resp or "error" in resp:
-            return self.pass_check("Server still operational after notifications/initialized")
-        return self.fail_check("Server not responding after notifications/initialized")
+        method = "server/discover" if self._client.modern else "ping"
+        response = await self._client._send_request(method)
+        if "error" in response:
+            return self.fail_check("Server returned a protocol error")
+        return self.pass_check("Server is operational")
 
     @check("NOTIF-002", "notifications/tools/list_changed format", Severity.ERROR)
     async def check_notif_002(self):
@@ -100,7 +89,7 @@ class NotificationsSuite(BaseSuite):
         if not notifs:
             self.skip("No progress notifications received")
         issues: list[str] = []
-        by_token: dict[str, list[dict]] = {}
+        by_token: dict[tuple[type, str | int], list[dict]] = {}
         for n in notifs:
             err = _validate_notification_format(n)
             if err:
@@ -108,20 +97,20 @@ class NotificationsSuite(BaseSuite):
                 continue
             params = n.get("params", {})
             token = params.get("progressToken")
-            if token is None:
+            if type(token) not in (str, int):
                 issues.append("progress notification missing progressToken")
                 continue
             progress = params.get("progress")
-            if not isinstance(progress, (int, float)) or progress < 0:
+            if type(progress) not in (int, float) or not math.isfinite(progress) or progress < 0:
                 issues.append(f"progress is {progress!r}, expected number >= 0")
                 continue
             total = params.get("total")
             if total is not None:
-                if not isinstance(total, (int, float)) or total <= 0:
+                if type(total) not in (int, float) or not math.isfinite(total) or total < 0:
                     issues.append(f"total is {total!r}, expected number > 0")
                 elif progress > total:
                     issues.append(f"progress {progress} > total {total}")
-            by_token.setdefault(str(token), []).append(params)
+            by_token.setdefault((type(token), token), []).append(params)
         for token, entries in by_token.items():
             values = [e.get("progress", 0) for e in entries]
             for i in range(1, len(values)):
@@ -133,6 +122,8 @@ class NotificationsSuite(BaseSuite):
 
     @check("SUB-001", "resources/subscribe returns success", Severity.ERROR)
     async def check_sub_001(self):
+        if self._client.modern or not self._client.active:
+            self.skip("Legacy subscription probe requires --active")
         caps = self._client.capabilities
         res_caps = caps.get("resources", {})
         if not isinstance(res_caps, dict) or not res_caps.get("subscribe"):
