@@ -11,7 +11,7 @@ from tests.conftest import MOCK_BROKEN, MOCK_VALID
 async def _make_client(cmd: str, timeout: float = 5.0):
     t = StdioTransport(cmd)
     await t.start()
-    c = MCPClient(t, timeout=timeout)
+    c = MCPClient(t, timeout=timeout, active=True)
     return c, t
 
 
@@ -47,9 +47,9 @@ class TestLifecycleSuiteBroken:
             suite = LifecycleSuite(c, lambda: StdioTransport(cmd), timeout=5.0)
             result = await suite.run()
             sm = _status_map(result)
-            assert sm["INIT-001"] == Status.PASS
-            assert sm["INIT-002"] == Status.FAIL
-            assert sm["INIT-003"] == Status.FAIL
+            assert sm["INIT-001"] == Status.FAIL
+            assert sm["INIT-002"] == Status.SKIP
+            assert sm["INIT-003"] == Status.SKIP
         finally:
             await t.stop()
 
@@ -94,7 +94,7 @@ class TestToolsSuiteBroken:
         cmd = f"{sys.executable} {MOCK_BROKEN}"
         c, t = await _make_client(cmd)
         try:
-            await c.initialize()
+            # Exercise malformed tool definitions independently of the broken handshake.
             from mcp_probe.suites.tools import ToolsSuite
 
             suite = ToolsSuite(c, 5.0)

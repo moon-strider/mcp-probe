@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -7,7 +8,7 @@ from datetime import datetime, timezone
 
 from mcp_probe.client import MCPClient
 from mcp_probe.transport.base import BaseTransport
-from mcp_probe.types import PROBE_VERSION, SPEC_VERSION, ProbeReport, Severity, Status
+from mcp_probe.types import PROBE_VERSION, CheckResult, ProbeReport, Severity, Status, SuiteResult
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +26,6 @@ _VALID_SUITE_NAMES = frozenset(
     }
 )
 
-_SUITE_ORDER = [
-    "auth",
-    "lifecycle",
-    "jsonrpc",
-    "tools",
-    "resources",
-    "prompts",
-    "notifications",
-    "tasks",
-    "edge",
-]
-
 
 class AbortRunError(Exception):
     pass
@@ -50,15 +39,17 @@ class Runner:
         suites_to_run: list[str] | None = None,
         timeout: float = 30.0,
         server_url: str | None = None,
-        oauth_enabled: bool = False,
+        check_auth: bool = False,
         target: str = "",
         transport_name: str = "stdio",
+        run_timeout: float = 120.0,
     ) -> None:
+        self._run_timeout = run_timeout
         self._client = client
         self._transport_factory = transport_factory
         self._timeout = timeout
         self._server_url = server_url
-        self._oauth_enabled = oauth_enabled
+        self._check_auth = check_auth
         self._target = target
         self._transport_name = transport_name
         self._explicitly_requested: set[str] = set()
@@ -80,13 +71,13 @@ class Runner:
         return True
 
     def _is_http(self) -> bool:
-        return self._transport_name in ("http", "sse")
+        return self._transport_name == "http"
 
     async def run(self) -> ProbeReport:
         start = time.perf_counter()
         report = ProbeReport(
             probe_version=PROBE_VERSION,
-            spec_version=SPEC_VERSION,
+            spec_version=self._client.protocol_version,
             target=self._target,
             transport=self._transport_name,
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -96,6 +87,36 @@ class Runner:
             suites=[],
         )
 
+        report.mode = (
+            "active" if self._client.active else "selected-tools" if self._client.allowed_tools else "discovery"
+        )
+        try:
+            await asyncio.wait_for(self._run_suites(report), self._run_timeout)
+        except asyncio.TimeoutError:
+            report.incomplete = True
+            report.suites.append(
+                SuiteResult(
+                    "runtime",
+                    [
+                        CheckResult(
+                            "RUN-001",
+                            "Run deadline",
+                            Status.FAIL,
+                            Severity.CRITICAL,
+                            0,
+                            "Run exceeded its total deadline",
+                            "transport",
+                        )
+                    ],
+                )
+            )
+        report.incomplete = report.incomplete or any(
+            c.error_kind == "transport" for s in report.suites for c in s.checks
+        )
+        report.duration_ms = (time.perf_counter() - start) * 1000
+        return report
+
+    async def _run_suites(self, report: ProbeReport) -> None:
         try:
             await self._run_auth(report)
             await self._run_lifecycle(report)
@@ -125,20 +146,22 @@ class Runner:
         except AbortRunError:
             logger.info("Run aborted due to critical failure")
 
-        report.duration_ms = (time.perf_counter() - start) * 1000
-        return report
+    def _record(self, report: ProbeReport, result: SuiteResult) -> None:
+        report.suites.append(result)
+        if any(c.error_kind == "transport" for c in result.checks):
+            raise AbortRunError("Transport failed; the response stream is no longer reusable")
 
     async def _run_auth(self, report: ProbeReport) -> None:
         if not self._should_run_suite("auth"):
             return
-        if not self._is_http() or not self._oauth_enabled or not self._server_url:
+        if not self._is_http() or not self._check_auth or not self._server_url:
             return
 
         from mcp_probe.suites.auth import AuthSuite
 
         suite = AuthSuite(self._server_url, timeout=self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_lifecycle(self, report: ProbeReport) -> None:
         from mcp_probe.suites.lifecycle import LifecycleSuite
@@ -149,10 +172,10 @@ class Runner:
             timeout=self._timeout,
         )
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
         for check in result.checks:
-            if check.check_id == "INIT-001" and check.status is Status.FAIL:
+            if check.severity is Severity.CRITICAL and check.status is Status.FAIL:
                 raise AbortRunError("INIT-001 failed — server handshake broken")
 
     async def _run_jsonrpc(self, report: ProbeReport) -> None:
@@ -161,21 +184,21 @@ class Runner:
 
         from mcp_probe.suites.jsonrpc import JsonRpcSuite
 
-        suite = JsonRpcSuite(self._client, self._timeout)
+        suite = JsonRpcSuite(self._client, self._timeout, transport_factory=self._transport_factory)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_tools(self, report: ProbeReport, has_capability: bool) -> None:
         if not self._should_run_suite("tools"):
             return
-        if not has_capability and "tools" not in self._explicitly_requested:
+        if not has_capability and "tools" not in self._explicitly_requested and not self._client.allowed_tools:
             return
 
         from mcp_probe.suites.tools import ToolsSuite
 
         suite = ToolsSuite(self._client, self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
         for check in result.checks:
             if check.check_id == "TOOL-001" and check.status is Status.PASS:
@@ -192,7 +215,7 @@ class Runner:
 
         suite = ResourcesSuite(self._client, self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
         for check in result.checks:
             if check.check_id == "RES-001" and check.status is Status.PASS:
@@ -209,7 +232,7 @@ class Runner:
 
         suite = PromptsSuite(self._client, self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_notifications(self, report: ProbeReport, has_subscribe: bool) -> None:
         if not self._should_run_suite("notifications"):
@@ -220,10 +243,12 @@ class Runner:
         resources_for_sub = self._resources if has_subscribe else []
         suite = NotificationsSuite(self._client, self._timeout, resources=resources_for_sub)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_tasks(self, report: ProbeReport, has_capability: bool) -> None:
         if not self._should_run_suite("tasks"):
+            return
+        if self._client.modern:
             return
         if not has_capability and "tasks" not in self._explicitly_requested:
             return
@@ -232,7 +257,7 @@ class Runner:
 
         suite = TasksSuite(self._client, tools=self._tools, timeout=self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_edge(self, report: ProbeReport) -> None:
         if not self._should_run_suite("edge"):
@@ -242,10 +267,12 @@ class Runner:
 
         suite = EdgeCasesSuite(self._client, tools=self._tools, timeout=self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
 
 def compute_exit_code(report: ProbeReport, strict: bool = False) -> int:
+    if report.incomplete:
+        return 2
     for suite in report.suites:
         for check in suite.checks:
             if check.status is Status.FAIL:

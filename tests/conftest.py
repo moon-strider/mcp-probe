@@ -23,3 +23,11 @@ def mock_broken_cmd():
 @pytest.fixture
 def mock_minimal_cmd():
     return f"python {MOCK_MINIMAL}"
+
+
+@pytest.fixture(autouse=True)
+def isolate_http_environment(monkeypatch):
+    # Loopback/mock tests must not inherit a developer's external proxy.
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.lower(), raising=False)

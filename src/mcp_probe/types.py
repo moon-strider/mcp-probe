@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from mcp_probe import __version__
+
 SPEC_VERSION = "2025-11-25"
-PROBE_VERSION = "0.1.0"
+
+PROBE_VERSION = __version__
 DEFAULT_TIMEOUT = 30
 
 
@@ -42,6 +45,7 @@ class CheckResult:
     severity: Severity
     duration_ms: float
     details: str | None = None
+    error_kind: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -51,6 +55,7 @@ class CheckResult:
             "severity": self.severity.value,
             "duration_ms": self.duration_ms,
             "details": self.details,
+            "error_kind": self.error_kind,
         }
 
 
@@ -77,6 +82,8 @@ class ProbeReport:
     server_info: dict | None
     capabilities: dict
     suites: list[SuiteResult] = field(default_factory=list)
+    incomplete: bool = False
+    mode: str = "discovery"
 
     @property
     def summary(self) -> dict[str, int]:
@@ -106,6 +113,9 @@ class ProbeReport:
     def to_dict(self) -> dict:
         return {
             "mcp_probe_version": self.probe_version,
+            "report_schema_version": "1",
+            "incomplete": self.incomplete,
+            "mode": self.mode,
             "spec_version": self.spec_version,
             "target": self.target,
             "transport": self.transport,

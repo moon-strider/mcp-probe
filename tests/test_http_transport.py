@@ -55,6 +55,8 @@ def mock_http_server():
     thread.start()
     yield f"http://127.0.0.1:{port}"
     server.shutdown()
+    server.server_close()
+    thread.join(timeout=2)
 
 
 @pytest.fixture
@@ -65,6 +67,8 @@ def mock_auth_server():
     thread.start()
     yield f"http://127.0.0.1:{port}"
     server.shutdown()
+    server.server_close()
+    thread.join(timeout=2)
 
 
 async def test_send_receive_json(mock_http_server):
@@ -95,7 +99,8 @@ async def test_auth_required(mock_auth_server):
     t = HttpTransport(mock_auth_server, timeout=5.0)
     await t.start()
     try:
+        await t.send({"jsonrpc": "2.0", "id": 1, "method": "test"})
         with pytest.raises(AuthRequiredError):
-            await t.send({"jsonrpc": "2.0", "id": 1, "method": "test"})
+            await t.receive(5.0)
     finally:
         await t.stop()

@@ -6,32 +6,76 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.8"
+      - run: uv sync --locked --python 3.12 --extra dev --extra full
+      - run: uv run --no-sync ruff check src tests examples scripts
+      - run: uv run --no-sync ruff format --check src tests examples scripts
+      - run: uv run --no-sync mypy src
+      - run: uv run --no-sync python scripts/check_docs.py
+      - run: uv run --no-sync pip-audit --local --skip-editable --progress-spinner off
+
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
-
+        python: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
-          python-version: ${{ matrix.python-version }}
+          version: "0.12.8"
+      - run: uv sync --locked --python ${{ matrix.python }} --extra dev --extra full
+      - run: uv run --no-sync pytest -m "not integration" --cov=mcp_probe --cov-report=term-missing --cov-fail-under=80
 
-      - name: Install dependencies
-        run: pip install -e ".[dev,full]"
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.8"
+      - run: uv sync --locked --python 3.12 --extra dev --extra full --extra demo
+      - name: Run the official SDK over real stdio and HTTP
+        env:
+          MCP_PROBE_SDK_PYTHON: .venv/bin/python
+        run: uv run --no-sync pytest -m integration --junitxml=junit.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: sdk-integration-results
+          path: junit.xml
 
-      - name: Lint (ruff check)
-        run: ruff check src/ tests/
-
-      - name: Format check (ruff format)
-        run: ruff format --check src/ tests/
-
-      - name: Type check (mypy)
-        run: mypy src/
-
-      - name: Run tests
-        run: pytest tests/ --cov=mcp_probe --cov-report=term-missing -v
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.8"
+      - run: uv sync --locked --python 3.12 --extra dev --extra full
+      - run: uv build
+      - run: uv run --no-sync twine check dist/*
+      - run: uv run --no-sync python scripts/verify_package.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: distributions
+          path: dist/*

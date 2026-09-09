@@ -1,4 +1,26 @@
-tasks
-__pycache__
-.pytest_cache
-.claude
+# Python environments and build output
+.venv/
+.*-venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Verification output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+junit.xml
+
+# Local editor and credentials
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+.DS_Store

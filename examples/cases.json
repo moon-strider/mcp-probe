@@ -1,0 +1,4 @@
+{
+  "add": {"a": 17, "b": 25},
+  "echo": {"text": "hello from mcp-probe"}
+}

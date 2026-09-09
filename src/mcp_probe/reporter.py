@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+import xml.etree.ElementTree as ET
 
-from mcp_probe.types import PROBE_VERSION, SPEC_VERSION, ProbeReport, Status
+from mcp_probe.runner import compute_exit_code
+from mcp_probe.types import ProbeReport, Severity, Status
 
 _SEPARATOR = "─" * 60
 
@@ -53,10 +56,13 @@ def report_console(report: ProbeReport, color: bool = True, verbose: bool = Fals
     color = _resolve_color(color)
     lines: list[str] = []
 
-    lines.append(f"mcp-probe v{PROBE_VERSION} — MCP Server Protocol Compliance Validator")
+    lines.append(f"mcp-probe v{report.probe_version} — MCP server checks")
     lines.append(f"Target: {report.target}")
     lines.append(f"Transport: {report.transport}")
-    lines.append(f"Spec: MCP {SPEC_VERSION}")
+    lines.append(f"Spec: MCP {report.spec_version}")
+    lines.append(f"Mode: {report.mode}")
+    if report.incomplete:
+        lines.append("Run incomplete: transport failure or deadline exceeded")
     lines.append("")
 
     for suite_result in report.suites:
@@ -100,7 +106,85 @@ def report_json(report: ProbeReport) -> str:
     return json.dumps(report.to_dict(), indent=2, ensure_ascii=False)
 
 
-def format_report(report: ProbeReport, fmt: str = "console", verbose: bool = False, color: bool = True) -> str:
+def report_junit(report: ProbeReport, strict: bool = False) -> str:
+    root = ET.Element("testsuites", name="mcp-probe")
+    failures = errors = skipped = 0
+    for suite in report.suites:
+        node = ET.SubElement(root, "testsuite", name=suite.name, tests=str(len(suite.checks)))
+        before = (failures, errors, skipped)
+        for check in suite.checks:
+            case = ET.SubElement(
+                node,
+                "testcase",
+                classname=suite.name,
+                name=f"{check.check_id}: {check.description}",
+                time=f"{check.duration_ms / 1000:.6f}",
+            )
+            if check.error_kind == "transport":
+                ET.SubElement(case, "error", message=check.details or "Transport failure")
+                errors += 1
+            elif (check.status is Status.FAIL and check.severity in (Severity.CRITICAL, Severity.ERROR)) or (
+                strict and check.status in (Status.FAIL, Status.WARN) and check.severity is not Severity.INFO
+            ):
+                ET.SubElement(case, "failure", message=check.details or check.status.value)
+                failures += 1
+            elif check.status is Status.SKIP:
+                ET.SubElement(case, "skipped", message=check.details or "Not exercised")
+                skipped += 1
+            elif check.details:
+                ET.SubElement(case, "system-out").text = check.details
+        for name, count, previous in zip(("failures", "errors", "skipped"), (failures, errors, skipped), before):
+            node.set(name, str(count - previous))
+        node.set("time", f"{sum(c.duration_ms for c in suite.checks) / 1000:.6f}")
+    root.set("tests", str(report.summary["total"]))
+    root.set("failures", str(failures))
+    root.set("errors", str(errors))
+    root.set("skipped", str(skipped))
+    return ET.tostring(root, encoding="unicode", xml_declaration=True)
+
+
+def redact_report(report: ProbeReport, secrets: list[str]) -> None:
+    """Strip terminal controls and known credentials from every report surface."""
+
+    def clean(value):
+        if isinstance(value, str):
+            for secret in sorted(set(secrets), key=len, reverse=True):
+                if secret:
+                    value = value.replace(secret, "[redacted]")
+            value = re.sub(r"(?i)bearer\s+[^\s,;]+", "Bearer [redacted]", value)
+            return "".join(
+                c
+                for c in value
+                if (
+                    32 <= ord(c) <= 0x10FFFF
+                    and not (127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF)
+                    and ord(c) not in (0xFFFE, 0xFFFF)
+                )
+                or c in "\n\t"
+            )[:4096]
+        if isinstance(value, dict):
+            return {clean(str(k)): clean(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [clean(v) for v in value]
+        return value
+
+    report.target = clean(report.target)
+    report.server_info = clean(report.server_info)
+    report.capabilities = clean(report.capabilities)
+    for suite in report.suites:
+        for check in suite.checks:
+            check.details = clean(check.details)
+
+
+def format_report(
+    report: ProbeReport, fmt: str = "console", verbose: bool = False, color: bool = True, strict: bool = False
+) -> str:
     if fmt == "json":
-        return report_json(report)
+        payload = report.to_dict()
+        payload["exit_code"] = compute_exit_code(report, strict)
+        return json.dumps(payload, indent=2, ensure_ascii=False)
+    if fmt == "junit":
+        return report_junit(report, strict)
+    if fmt != "console":
+        raise ValueError("Unsupported report format")
     return report_console(report, color=color, verbose=verbose)

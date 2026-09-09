@@ -1,157 +1,173 @@
 from __future__ import annotations
 
-import asyncio
-import logging
+from datetime import datetime
 
-from mcp_probe.schema_utils import generate_valid_args
+from mcp_probe.protocol import ProtocolError, result_object, validate_tool_result
+from mcp_probe.schema_worker import generate_valid_args, matches_schema
 from mcp_probe.suites.base import BaseSuite, check
 from mcp_probe.types import Severity
 
-logger = logging.getLogger(__name__)
-
-_VALID_TASK_STATUSES = {"working", "input_required", "completed", "failed", "cancelled"}
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+_VALID_TASK_STATUSES = _TERMINAL_STATUSES | {"working", "input_required"}
+
+
+def validate_task(task: dict) -> None:
+    if not isinstance(task, dict) or not isinstance(task.get("taskId"), str) or not task["taskId"]:
+        raise ProtocolError("Task requires a nonempty taskId")
+    if task.get("status") not in _VALID_TASK_STATUSES:
+        raise ProtocolError("Task has an invalid status")
+    for field in ("createdAt", "lastUpdatedAt"):
+        try:
+            value = datetime.fromisoformat(task[field].replace("Z", "+00:00"))
+            if value.tzinfo is None:
+                raise ValueError
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise ProtocolError("Task requires timezone-aware createdAt and lastUpdatedAt") from exc
+    if "ttl" not in task or (task["ttl"] is not None and (type(task["ttl"]) is not int or task["ttl"] < 0)):
+        raise ProtocolError("Task ttl must be null or a nonnegative integer")
+    if "pollInterval" in task and (type(task["pollInterval"]) is not int or task["pollInterval"] < 0):
+        raise ProtocolError("Task pollInterval must be a nonnegative integer")
 
 
 class TasksSuite(BaseSuite):
+    """Legacy task checks only ever mutate task handles created by this suite."""
+
     name = "tasks"
 
     def __init__(self, *args, tools: list[dict] | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._tools = tools or []
         self._tasks: list[dict] = []
+        self._owned: dict | None = None
 
-    @check("TASK-001", "tasks/list returns a list of tasks", Severity.CRITICAL)
+    def _caps(self) -> dict:
+        value = self._client.capabilities.get("tasks", {})
+        return value if isinstance(value, dict) else {}
+
+    async def _ensure_owned(self) -> dict:
+        if self._owned is not None:
+            return self._owned
+        if not self._client.active:
+            self.skip("Task execution requires --active and explicit tool selection")
+        if "call" not in self._caps().get("requests", {}).get("tools", {}):
+            self.skip("Server does not advertise tasks.requests.tools.call")
+        for tool in self._tools:
+            if tool.get("name") not in self._client.allowed_tools:
+                continue
+            if tool.get("execution", {}).get("taskSupport") not in ("required", "optional"):
+                continue
+            args = self._client.tool_cases.get(tool["name"])
+            if args is None:
+                args = await generate_valid_args(tool.get("inputSchema", {}))
+            if args is None:
+                continue
+            if await matches_schema(args, tool["inputSchema"]) is False:
+                raise ProtocolError("Task case does not match inputSchema")
+            result = result_object(await self._client.call_tool_with_task(tool["name"], args))
+            owned = result.get("task")
+            if not isinstance(owned, dict):
+                raise ProtocolError("CreateTaskResult requires a task object")
+            validate_task(owned)
+            self._owned = owned
+            return owned
+        self.skip("No selected task-capable tool with usable arguments")
+
+    @check("TASK-000", "Selected task tools are advertised", Severity.CRITICAL)
+    async def check_task_000(self):
+        if not self._client.allowed_tools:
+            self.skip("No task tool selected")
+        if not self._tools:
+            self._tools = await self._client.list_tools()
+        names = {t.get("name") for t in self._tools if isinstance(t.get("name"), str)}
+        if self._client.allowed_tools - names:
+            return self.fail_check("Selected task tool was not advertised")
+        return self.pass_check("Selected tools were found")
+
+    @check("TASK-001", "Advertised tasks/list returns a bounded list", Severity.ERROR)
     async def check_task_001(self):
-        resp = await self._client._send_request("tasks/list")
-        result = resp.get("result", {})
-        tasks = result.get("tasks")
-        if tasks is None:
-            return self.fail_check(f"No 'tasks' key in result: {list(result.keys())}")
-        if not isinstance(tasks, list):
-            return self.fail_check(f"'tasks' is not a list: {type(tasks).__name__}")
-        self._tasks = tasks
-        return self.pass_check(f"Found {len(tasks)} tasks")
+        if "list" not in self._caps():
+            self.skip("Server does not advertise tasks.list")
+        self._tasks = await self._client.list_tasks()
+        return self.pass_check(f"Found {len(self._tasks)} tasks; these handles will not be cancelled")
 
-    @check("TASK-002", "Each task has taskId, status, createdAt", Severity.ERROR)
+    @check("TASK-002", "Listed task metadata is well formed", Severity.ERROR)
     async def check_task_002(self):
         if not self._tasks:
-            self.skip("No tasks discovered")
-        issues: list[str] = []
-        for t in self._tasks:
-            tid = t.get("taskId")
-            if not isinstance(tid, str) or not tid:
-                issues.append(f"task missing 'taskId': {t}")
-            status = t.get("status")
-            if status not in _VALID_TASK_STATUSES:
-                issues.append(f"task '{tid}' has invalid status: {status!r}")
-            created = t.get("createdAt")
-            if not isinstance(created, str) or not created:
-                issues.append(f"task '{tid}' missing 'createdAt'")
-        if issues:
-            return self.fail_check("; ".join(issues[:5]))
-        return self.pass_check(f"All {len(self._tasks)} tasks have required fields")
+            self.skip("No tasks listed")
+        seen: set[str] = set()
+        for task in self._tasks:
+            validate_task(task)
+            if task["taskId"] in seen:
+                return self.fail_check("Duplicate task ids in listing")
+            seen.add(task["taskId"])
+        return self.pass_check("Task ids, statuses, timestamps and lifetime fields are valid")
 
-    @check("TASK-003", "tasks/get returns task status", Severity.ERROR)
+    @check("TASK-003", "tasks/get returns the probe-created task", Severity.ERROR)
     async def check_task_003(self):
-        if not self._tasks:
-            self.skip("No tasks to get")
-        task_id = self._tasks[0]["taskId"]
-        resp = await self._client.get_task(task_id)
-        if "error" in resp:
-            return self.fail_check(f"get_task error: {resp['error']}")
-        result = resp.get("result", {})
-        if "taskId" not in result or "status" not in result:
-            return self.fail_check(f"Response missing taskId or status: {list(result.keys())}")
-        return self.pass_check(f"Task '{task_id}' status: {result['status']}")
+        owned = await self._ensure_owned()
+        result = result_object(await self._client.get_task(owned["taskId"]))
+        validate_task(result)
+        if result["taskId"] != owned["taskId"]:
+            return self.fail_check("tasks/get returned a different task id")
+        self._owned = result
+        return self.pass_check("Probe-created task retrieved")
 
-    @check("TASK-004", "Nonexistent taskId returns error", Severity.WARNING)
+    @check("TASK-004", "Unknown task id returns an error", Severity.WARNING)
     async def check_task_004(self):
-        try:
-            resp = await self._client.get_task("nonexistent-task-id-00000")
-        except Exception as exc:
-            return self.fail_check(f"Server crashed: {exc}")
-        if "error" in resp:
-            return self.pass_check("Server returned error for nonexistent taskId")
-        return self.fail_check("Server did not return error for nonexistent taskId")
+        if not self._client.active:
+            self.skip("Negative task probe requires --active")
+        response = await self._client.get_task("__mcp_probe_nonexistent_task__")
+        if "error" not in response:
+            return self.fail_check("Unknown task id accepted")
+        return self.pass_check("Unknown task id rejected")
 
-    @check("TASK-005", "tasks/cancel cancels a working task", Severity.ERROR)
+    @check("TASK-005", "Only a probe-created working task is cancelled", Severity.ERROR)
     async def check_task_005(self):
-        working = [t for t in self._tasks if t.get("status") == "working"]
-        if not working:
-            self.skip("No tasks in 'working' status")
-        task_id = working[0]["taskId"]
-        resp = await self._client.cancel_task(task_id)
-        if "error" in resp:
-            return self.fail_check(f"cancel error: {resp['error']}")
-        result = resp.get("result", {})
-        if result.get("status") == "cancelled":
-            return self.pass_check(f"Task '{task_id}' cancelled")
-        return self.warn_check(f"Task '{task_id}' status after cancel: {result.get('status')}")
+        if "cancel" not in self._caps():
+            self.skip("Server does not advertise tasks.cancel")
+        owned = await self._ensure_owned()
+        if owned["status"] not in ("working", "input_required"):
+            self.skip("Probe-created task is already terminal")
+        response = await self._client.cancel_task(owned["taskId"])
+        if "error" in response:
+            # Completion may win the race between get and cancel.
+            state = result_object(await self._client.get_task(owned["taskId"]))
+            validate_task(state)
+            if state["taskId"] == owned["taskId"] and state["status"] in _TERMINAL_STATUSES:
+                self._owned = state
+                return self.info_check("Task completed before cancellation")
+            return self.fail_check("Cancellation failed for a nonterminal task")
+        result = result_object(response)
+        validate_task(result)
+        if result["taskId"] != owned["taskId"] or result["status"] != "cancelled":
+            return self.fail_check("Cancellation returned an inconsistent task")
+        self._owned = result
+        return self.pass_check("Probe-created task cancelled")
 
-    @check("TASK-006", "tasks/cancel on terminal task returns error", Severity.WARNING)
+    @check("TASK-006", "Terminal task rejects cancellation", Severity.WARNING)
     async def check_task_006(self):
-        terminal = [t for t in self._tasks if t.get("status") in _TERMINAL_STATUSES]
-        if not terminal:
-            self.skip("No tasks in terminal status")
-        task_id = terminal[0]["taskId"]
-        resp = await self._client.cancel_task(task_id)
-        if "error" in resp:
-            code = resp["error"].get("code")
-            return self.pass_check(f"Server returned error (code={code}) for cancel on terminal task")
-        return self.warn_check("Server did not return error for cancel on terminal task")
+        if "cancel" not in self._caps():
+            self.skip("Server does not advertise tasks.cancel")
+        owned = await self._ensure_owned()
+        if owned["status"] not in _TERMINAL_STATUSES:
+            self.skip("Probe-created task is not terminal")
+        response = await self._client.cancel_task(owned["taskId"])
+        if response.get("error", {}).get("code") != -32602:
+            return self.warn_check("Expected invalid-params rejection; task may have expired")
+        return self.pass_check("Terminal task cancellation rejected")
 
-    @check("TASK-007", "tasks/result returns completed task result", Severity.ERROR)
+    @check("TASK-007", "Completed probe task returns its tool result", Severity.ERROR)
     async def check_task_007(self):
-        completed = [t for t in self._tasks if t.get("status") == "completed"]
-        if not completed:
-            self.skip("No completed tasks")
-        task_id = completed[0]["taskId"]
-        resp = await self._client.get_task_result(task_id)
-        if "error" in resp:
-            return self.fail_check(f"get_task_result error: {resp['error']}")
-        return self.pass_check(f"Got result for completed task '{task_id}'")
+        owned = await self._ensure_owned()
+        if owned["status"] != "completed":
+            self.skip("Probe-created task is not completed")
+        result = result_object(await self._client.get_task_result(owned["taskId"]))
+        validate_tool_result(result)
+        if result.get("_meta", {}).get("io.modelcontextprotocol/related-task", {}).get("taskId") != owned["taskId"]:
+            return self.fail_check("Task result is missing matching related-task metadata")
+        return self.pass_check("tasks/result returned valid content for the probe task")
 
-    @check("TASK-008", "Task-augmented tools/call returns task handle", Severity.ERROR)
+    @check("TASK-008", "Task-augmented call returns a task object", Severity.ERROR)
     async def check_task_008(self):
-        caps = self._client.capabilities
-        tasks_caps = caps.get("tasks", {})
-        if not isinstance(tasks_caps, dict) or not tasks_caps.get("tools"):
-            self.skip("Server does not advertise tasks.tools capability")
-        if not self._tools:
-            self.skip("No tools available for task-augmented call")
-        tool = None
-        args = None
-        for t in self._tools:
-            schema = t.get("inputSchema", {})
-            a = generate_valid_args(schema)
-            if a is not None:
-                tool = t
-                args = a
-                break
-        if tool is None or args is None:
-            self.skip("No tool with simple enough schema for task-augmented call")
-        resp = await self._client.call_tool_with_task(tool["name"], args, ttl=30000)
-        if "error" in resp:
-            return self.fail_check(f"Task-augmented call error: {resp['error']}")
-        result = resp.get("result", {})
-        if result.get("type") != "task":
-            return self.fail_check(f"Response type is {result.get('type')!r}, expected 'task'")
-        task_id = result.get("taskId")
-        status = result.get("status")
-        if not task_id:
-            return self.fail_check("Response missing taskId")
-        details = f"Task '{task_id}' created with status '{status}'"
-        if status == "working":
-            poll_interval = result.get("pollInterval", 1000) / 1000.0
-            for _ in range(3):
-                await asyncio.sleep(poll_interval)
-                poll_resp = await self._client.get_task(task_id)
-                poll_result = poll_resp.get("result", {})
-                if poll_result.get("status") in _TERMINAL_STATUSES:
-                    details += f" -> {poll_result['status']}"
-                    if poll_result["status"] == "completed":
-                        await self._client.get_task_result(task_id)
-                        details += " (result fetched)"
-                    break
-        return self.pass_check(details)
+        await self._ensure_owned()
+        return self.pass_check("CreateTaskResult contains valid task metadata")
