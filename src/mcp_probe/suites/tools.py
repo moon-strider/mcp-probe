@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from mcp_probe.protocol import ProtocolError, result_object, validate_tool_result
-from mcp_probe.schema_utils import generate_invalid_args, generate_valid_args, matches_schema, schema_error
+from mcp_probe.schema_worker import generate_invalid_args, generate_valid_args, matches_schema, schema_error
 from mcp_probe.suites.base import BaseSuite, check
 from mcp_probe.types import Severity
 
@@ -17,17 +17,20 @@ class ToolsSuite(BaseSuite):
         super().__init__(*args, **kwargs)
         self._tools: list[dict] = []
         self._first_page_had_cursor = False
+        self._schemas_valid: bool | None = None
 
     def _selected(self) -> list[dict]:
+        if self._schemas_valid is False:
+            self.skip("Tool schema validation failed or could not complete")
         selected = [t for t in self._tools if t.get("name") in self._client.allowed_tools]
         if not selected:
             self.skip("No tool selected; use --tool or --cases to enable calls")
         return selected
 
-    def _arguments(self, tool: dict) -> dict | None:
+    async def _arguments(self, tool: dict) -> dict | None:
         if tool["name"] in self._client.tool_cases:
             return self._client.tool_cases[tool["name"]]
-        return generate_valid_args(tool.get("inputSchema", {}))
+        return await generate_valid_args(tool.get("inputSchema", {}))
 
     @check("TOOL-001", "tools/list returns a bounded list", Severity.CRITICAL)
     async def check_tool_001(self):
@@ -65,15 +68,17 @@ class ToolsSuite(BaseSuite):
     async def check_tool_003(self):
         if not self._tools:
             self.skip("No tools discovered")
+        self._schemas_valid = False
         for tool in self._tools:
             for key in ("inputSchema", "outputSchema"):
                 if key not in tool:
                     continue
-                error = schema_error(tool[key])
+                error = await schema_error(tool[key])
                 if error:
                     return self.fail_check(f"{tool.get('name')!r} {key}: {error}")
                 if not self._client.modern and tool[key].get("type") != "object":
                     return self.fail_check("Legacy tool schemas require type=object")
+        self._schemas_valid = True
         try:
             import jsonschema  # type: ignore[import-untyped]  # noqa: F401
         except ImportError:
@@ -87,15 +92,15 @@ class ToolsSuite(BaseSuite):
         for tool in self._selected():
             if tool.get("execution", {}).get("taskSupport") == "required":
                 continue
-            args = self._arguments(tool)
+            args = await self._arguments(tool)
             if args is None:
                 continue
-            if matches_schema(args, tool["inputSchema"]) is False:
+            if await matches_schema(args, tool["inputSchema"]) is False:
                 return self.fail_check(f"Case arguments do not match {tool['name']!r} inputSchema")
             response = await self._client.call_tool(tool["name"], args)
             if "error" in response:
                 return self.fail_check(f"Selected tool returned a protocol error: {tool['name']!r}")
-            result = response.get("result")
+            result = result_object(response)
             try:
                 validate_tool_result(result, modern=self._client.modern is True)
             except ProtocolError as exc:
@@ -105,7 +110,7 @@ class ToolsSuite(BaseSuite):
             elif "outputSchema" in tool:
                 if "structuredContent" not in result:
                     return self.fail_check("Tool with outputSchema omitted structuredContent")
-                valid = matches_schema(result["structuredContent"], tool["outputSchema"])
+                valid = await matches_schema(result["structuredContent"], tool["outputSchema"])
                 if valid is False:
                     return self.fail_check("structuredContent does not match outputSchema")
                 if valid is None:
@@ -129,7 +134,7 @@ class ToolsSuite(BaseSuite):
         for tool in self._selected():
             if tool.get("execution", {}).get("taskSupport") == "required":
                 continue
-            args = generate_invalid_args(tool.get("inputSchema", {}))
+            args = await generate_invalid_args(tool.get("inputSchema", {}))
             if args is None:
                 continue
             response = await self._client.call_tool(tool["name"], args)

@@ -91,6 +91,21 @@ class StdioTransport(BaseTransport):
             if os.name == "posix":
                 self._signal(signal.SIGKILL)
             self.return_code = process.returncode
+
+            async def drain_stdout() -> None:
+                if process.stdout is not None:
+                    while await process.stdout.read(4096):
+                        pass
+
+            # Reap pipe EOF callbacks before the event loop is closed, including
+            # when the leader exited while a descendant still held stdout.
+            readers = [asyncio.create_task(drain_stdout())]
+            if self._stderr_task is not None:
+                readers.append(self._stderr_task)
+            try:
+                await asyncio.wait_for(asyncio.gather(*readers), 1.0)
+            except asyncio.TimeoutError:
+                pass
             if self._stderr_task is not None:
                 self._stderr_task.cancel()
                 await asyncio.gather(self._stderr_task, return_exceptions=True)

@@ -42,7 +42,7 @@ def _parse_header(raw: str) -> tuple[str, str]:
     name, value = (part.strip() for part in raw.split(":", 1))
     if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) or any(ord(c) < 32 or ord(c) == 127 for c in value):
         raise argparse.ArgumentTypeError("Invalid HTTP header name or value")
-    if name.lower() in {
+    if name.lower().startswith("mcp-param-") or name.lower() in {
         "host",
         "content-length",
         "content-type",

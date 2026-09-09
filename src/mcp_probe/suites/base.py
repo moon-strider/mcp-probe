@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import NoReturn
 
 from mcp_probe.client import MCPClient
+from mcp_probe.schema_worker import SchemaBudgetError
 from mcp_probe.types import CheckResult, Severity, Status, SuiteResult
 
 logger = logging.getLogger(__name__)
@@ -54,12 +55,15 @@ class BaseSuite(abc.ABC):
 
     async def run(self) -> SuiteResult:
         results: list[CheckResult] = []
+        blocked = False
         for meta, method in self._get_checks():
             check_id = meta["check_id"]
             description = meta["description"]
             severity = meta["severity"]
             start = time.perf_counter()
             try:
+                if blocked:
+                    self.skip("Earlier critical or transport failure prevents this check")
                 result = await asyncio.wait_for(method(), timeout=self._timeout)
                 elapsed = (time.perf_counter() - start) * 1000
                 if isinstance(result, CheckResult):
@@ -90,6 +94,12 @@ class BaseSuite(abc.ABC):
                         details=str(exc) if str(exc) else None,
                     )
                 )
+            except SchemaBudgetError as exc:
+                results.append(
+                    CheckResult(
+                        check_id, description, Status.WARN, severity, (time.perf_counter() - start) * 1000, str(exc)
+                    )
+                )
             except Exception as exc:
                 elapsed = (time.perf_counter() - start) * 1000
                 logger.debug("Check %s failed with exception: %s", check_id, exc, exc_info=True)
@@ -110,6 +120,9 @@ class BaseSuite(abc.ABC):
                         ),
                     )
                 )
+            last = results[-1]
+            if last.error_kind == "transport" or (last.status is Status.FAIL and last.severity is Severity.CRITICAL):
+                blocked = True
         return SuiteResult(name=self.name, checks=results)
 
     def skip(self, reason: str = "") -> NoReturn:

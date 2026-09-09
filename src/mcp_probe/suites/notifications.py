@@ -9,14 +9,6 @@ from mcp_probe.types import Severity
 
 logger = logging.getLogger(__name__)
 
-_VALID_NOTIFICATION_METHODS = {
-    "notifications/tools/list_changed",
-    "notifications/resources/list_changed",
-    "notifications/resources/updated",
-    "notifications/prompts/list_changed",
-    "notifications/progress",
-}
-
 
 def _validate_notification_format(notif: dict) -> str | None:
     if notif.get("jsonrpc") != "2.0":
@@ -42,7 +34,7 @@ class NotificationsSuite(BaseSuite):
     def _find_notifications(self, method: str) -> list[dict]:
         return [n for n in self._client.received_notifications if n.get("method") == method]
 
-    @check("NOTIF-001", "Server accepts notifications/initialized", Severity.CRITICAL)
+    @check("NOTIF-001", "Server remains operational during notification checks", Severity.CRITICAL)
     async def check_notif_001(self):
         method = "server/discover" if self._client.modern else "ping"
         response = await self._client._send_request(method)

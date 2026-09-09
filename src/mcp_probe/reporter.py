@@ -111,6 +111,7 @@ def report_junit(report: ProbeReport, strict: bool = False) -> str:
     failures = errors = skipped = 0
     for suite in report.suites:
         node = ET.SubElement(root, "testsuite", name=suite.name, tests=str(len(suite.checks)))
+        before = (failures, errors, skipped)
         for check in suite.checks:
             case = ET.SubElement(
                 node,
@@ -132,6 +133,9 @@ def report_junit(report: ProbeReport, strict: bool = False) -> str:
                 skipped += 1
             elif check.details:
                 ET.SubElement(case, "system-out").text = check.details
+        for name, count, previous in zip(("failures", "errors", "skipped"), (failures, errors, skipped), before):
+            node.set(name, str(count - previous))
+        node.set("time", f"{sum(c.duration_ms for c in suite.checks) / 1000:.6f}")
     root.set("tests", str(report.summary["total"]))
     root.set("failures", str(failures))
     root.set("errors", str(errors))
@@ -148,7 +152,16 @@ def redact_report(report: ProbeReport, secrets: list[str]) -> None:
                 if secret:
                     value = value.replace(secret, "[redacted]")
             value = re.sub(r"(?i)bearer\s+[^\s,;]+", "Bearer [redacted]", value)
-            return "".join(c for c in value if (ord(c) >= 32 and not 127 <= ord(c) <= 159) or c in "\n\t")[:4096]
+            return "".join(
+                c
+                for c in value
+                if (
+                    32 <= ord(c) <= 0x10FFFF
+                    and not (127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF)
+                    and ord(c) not in (0xFFFE, 0xFFFF)
+                )
+                or c in "\n\t"
+            )[:4096]
         if isinstance(value, dict):
             return {clean(str(k)): clean(v) for k, v in value.items()}
         if isinstance(value, list):

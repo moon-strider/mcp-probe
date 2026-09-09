@@ -92,6 +92,8 @@ class MCPClient:
             validate_envelope(msg)
             if "method" in msg:
                 if "id" in msg:
+                    if self.modern:
+                        raise ProtocolError("Modern peers must use MRTR instead of standalone requests")
                     reply = {"jsonrpc": "2.0", "id": msg["id"]}
                     if msg["method"] == "ping" and not self.modern:
                         reply["result"] = {}
@@ -192,7 +194,9 @@ class MCPClient:
         raise ProtocolError("Pagination page limit exceeded")
 
     async def list_tools(self) -> list[dict]:
-        return await self._paginated_list("tools/list", "tools")
+        tools = await self._paginated_list("tools/list", "tools")
+        self._transport.set_tool_schemas(tools)
+        return tools
 
     async def call_tool(self, name: str, arguments: dict) -> dict:
         return await self._send_request("tools/call", {"name": name, "arguments": arguments})

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from urllib.parse import urlsplit
 
 import httpx
 
 from mcp_probe.protocol import MAX_MESSAGE_BYTES, MAX_MESSAGES, MODERN_VERSION, ProtocolError, loads_message
 from mcp_probe.transport.base import BaseTransport
+from mcp_probe.transport.headers import encode_value, parameter_headers
 from mcp_probe.transport.sse import parse_sse_json_stream
 
 
@@ -35,6 +37,17 @@ class HttpTransport(BaseTransport):
         self._pending_messages: asyncio.Queue[dict | Exception] = asyncio.Queue(maxsize=MAX_MESSAGES)
         self._jobs: set[asyncio.Task] = set()
         self._http: httpx.AsyncClient | None = None
+        self._schemas: dict[str, dict] = {}
+
+    def set_tool_schemas(self, tools: list[dict]) -> None:
+        self._schemas = {
+            t["name"]: t["inputSchema"]
+            for t in tools
+            if isinstance(t.get("name"), str) and isinstance(t.get("inputSchema"), dict)
+        }
+        if self.protocol_version == MODERN_VERSION:
+            for schema in self._schemas.values():
+                parameter_headers(schema, {})
 
     async def start(self) -> None:
         if self._running:
@@ -55,9 +68,15 @@ class HttpTransport(BaseTransport):
             headers["Mcp-Session-Id"] = self.session_id
         if self.protocol_version == MODERN_VERSION and message and "method" in message:
             headers["Mcp-Method"] = message["method"]
-            name = message.get("params", {}).get("name")
-            if name is not None and message["method"] in ("tools/call", "prompts/get"):
-                headers["Mcp-Name"] = name
+            params = message.get("params", {})
+            if message["method"] in ("tools/call", "prompts/get", "resources/read"):
+                name = params.get("uri" if message["method"] == "resources/read" else "name")
+                if name is not None:
+                    headers["Mcp-Name"] = encode_value(name)
+            if message["method"] == "tools/call":
+                headers.update(
+                    parameter_headers(self._schemas.get(params.get("name"), {}), params.get("arguments", {}))
+                )
         return headers
 
     async def send(self, message: dict) -> None:
@@ -88,13 +107,19 @@ class HttpTransport(BaseTransport):
         async with self._http.stream("POST", self._url, content=data, headers=self._headers(message)) as response:
             if response.status_code == 401:
                 raise AuthRequiredError("Server requires authentication; supply a header or token environment variable")
-            if response.status_code >= 300:
+            protocol_error_status = (
+                expects_response
+                and self.protocol_version == MODERN_VERSION
+                and response.status_code in (400, 404)
+                and response.headers.get("content-type", "").split(";", 1)[0] == "application/json"
+            )
+            if response.status_code >= 300 and not protocol_error_status:
                 raise ConnectionError(f"Server returned HTTP {response.status_code}")
             if not expects_response:
                 if response.status_code != 202:
                     raise ProtocolError("HTTP notifications and client responses require status 202")
                 return
-            if response.status_code != 200:
+            if response.status_code != 200 and not protocol_error_status:
                 raise ProtocolError("HTTP request did not return a response body with status 200")
             session = response.headers.get("Mcp-Session-Id")
             if session is not None and self.protocol_version != MODERN_VERSION:
@@ -110,16 +135,28 @@ class HttpTransport(BaseTransport):
             count = 0
             buffer = bytearray()
             event_lines: list[str] = []
+            skip_lf = False
             async for chunk in response.aiter_bytes():
                 size += len(chunk)
                 if size > MAX_MESSAGE_BYTES:
                     raise ProtocolError("HTTP response exceeds the byte limit")
+                if skip_lf and chunk:
+                    if chunk.startswith(b"\n"):
+                        chunk = chunk[1:]
+                    skip_lf = False
                 buffer.extend(chunk)
                 if content_type == "application/json":
                     continue
-                while b"\n" in buffer:
-                    line, _, rest = buffer.partition(b"\n")
-                    buffer = bytearray(rest)
+                while match := re.search(b"[\r\n]", buffer):
+                    index = match.start()
+                    line = buffer[:index]
+                    is_cr = buffer[index] == 13
+                    buffer = buffer[index + 1 :]
+                    if is_cr:
+                        if buffer.startswith(b"\n"):
+                            del buffer[0]
+                        elif not buffer:
+                            skip_lf = True
                     try:
                         decoded = line.decode("utf-8").rstrip("\r")
                     except UnicodeError as exc:
@@ -136,7 +173,10 @@ class HttpTransport(BaseTransport):
                             return
                     event_lines = []
             if content_type == "application/json":
-                await self._pending_messages.put(loads_message(bytes(buffer)))
+                parsed = loads_message(bytes(buffer))
+                if protocol_error_status and "error" not in parsed:
+                    raise ProtocolError("HTTP error status requires a JSON-RPC error body")
+                await self._pending_messages.put(parsed)
                 return
             raise ConnectionError("SSE stream ended before the request response")
 

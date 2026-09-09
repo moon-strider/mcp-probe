@@ -146,6 +146,11 @@ class Runner:
         except AbortRunError:
             logger.info("Run aborted due to critical failure")
 
+    def _record(self, report: ProbeReport, result: SuiteResult) -> None:
+        report.suites.append(result)
+        if any(c.error_kind == "transport" for c in result.checks):
+            raise AbortRunError("Transport failed; the response stream is no longer reusable")
+
     async def _run_auth(self, report: ProbeReport) -> None:
         if not self._should_run_suite("auth"):
             return
@@ -156,7 +161,7 @@ class Runner:
 
         suite = AuthSuite(self._server_url, timeout=self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_lifecycle(self, report: ProbeReport) -> None:
         from mcp_probe.suites.lifecycle import LifecycleSuite
@@ -167,7 +172,7 @@ class Runner:
             timeout=self._timeout,
         )
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
         for check in result.checks:
             if check.severity is Severity.CRITICAL and check.status is Status.FAIL:
@@ -181,7 +186,7 @@ class Runner:
 
         suite = JsonRpcSuite(self._client, self._timeout, transport_factory=self._transport_factory)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_tools(self, report: ProbeReport, has_capability: bool) -> None:
         if not self._should_run_suite("tools"):
@@ -193,7 +198,7 @@ class Runner:
 
         suite = ToolsSuite(self._client, self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
         for check in result.checks:
             if check.check_id == "TOOL-001" and check.status is Status.PASS:
@@ -210,7 +215,7 @@ class Runner:
 
         suite = ResourcesSuite(self._client, self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
         for check in result.checks:
             if check.check_id == "RES-001" and check.status is Status.PASS:
@@ -227,7 +232,7 @@ class Runner:
 
         suite = PromptsSuite(self._client, self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_notifications(self, report: ProbeReport, has_subscribe: bool) -> None:
         if not self._should_run_suite("notifications"):
@@ -238,7 +243,7 @@ class Runner:
         resources_for_sub = self._resources if has_subscribe else []
         suite = NotificationsSuite(self._client, self._timeout, resources=resources_for_sub)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_tasks(self, report: ProbeReport, has_capability: bool) -> None:
         if not self._should_run_suite("tasks"):
@@ -252,7 +257,7 @@ class Runner:
 
         suite = TasksSuite(self._client, tools=self._tools, timeout=self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
     async def _run_edge(self, report: ProbeReport) -> None:
         if not self._should_run_suite("edge"):
@@ -262,7 +267,7 @@ class Runner:
 
         suite = EdgeCasesSuite(self._client, tools=self._tools, timeout=self._timeout)
         result = await suite.run()
-        report.suites.append(result)
+        self._record(report, result)
 
 
 def compute_exit_code(report: ProbeReport, strict: bool = False) -> int:

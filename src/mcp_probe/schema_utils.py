@@ -23,7 +23,7 @@ def _validator(schema: dict):
         return None
 
     def no_remote(uri):
-        raise NoSuchResource(ref=uri)
+        raise NoSuchResource(uri)
 
     cls = jsonschema.validators.validator_for(schema, default=jsonschema.Draft202012Validator)
     cls.check_schema(schema)
@@ -117,6 +117,7 @@ def _generate_value(schema: dict, depth: int) -> Any:
         "deprecated",
         "readOnly",
         "writeOnly",
+        "x-mcp-header",
     }
     if set(schema) - supported:
         raise ValueError("Unsupported generation constraint")

@@ -99,3 +99,41 @@ async def test_stop_sigkill_on_hang(hang_script):
     await t.start()
     await t.stop()
     assert t.return_code is not None
+
+
+async def test_stderr_capture_is_bounded(tmp_path):
+    script = tmp_path / "stderr_server.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stderr.write('x' * (1024 * 400))\n"
+        "sys.stderr.flush()\n"
+        'print(\'{"jsonrpc":"2.0","id":1,"result":{}}\', flush=True)\n'
+        "sys.stdin.read()\n"
+    )
+    t = StdioTransport([sys.executable, str(script)])
+    async with t:
+        await t.receive(5)
+        assert len(t.stderr_output) <= 64 * 4096
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Inspect descendant state through Linux procfs")
+async def test_stop_terminates_descendants(tmp_path):
+    from pathlib import Path
+
+    script = tmp_path / "parent.py"
+    script.write_text(
+        "import subprocess, sys, json\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "print(json.dumps({'jsonrpc':'2.0','id':1,'result':{'pid':child.pid}}), flush=True)\n"
+        "sys.stdin.read()\n"
+    )
+    t = StdioTransport([sys.executable, str(script)])
+    async with t:
+        child = (await t.receive(5))["result"]["pid"]
+    for _ in range(100):
+        stat = Path(f"/proc/{child}/stat")
+        if not stat.exists() or stat.read_text().split()[2] == "Z":
+            break
+        await asyncio.sleep(0.01)
+    else:
+        pytest.fail("The server descendant survived transport cleanup")

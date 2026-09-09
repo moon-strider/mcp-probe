@@ -18,7 +18,11 @@ def parse_sse_stream(lines: Iterable[str]) -> Generator[SSEEvent, None, None]:
     event_type: str | None = None
     data: list[str] = []
     event_id: str | None = None
+    first_line = True
     for raw in lines:
+        if first_line:
+            raw = raw.removeprefix("\ufeff")
+            first_line = False
         line = raw.rstrip("\r\n")
         if not line:
             if data:

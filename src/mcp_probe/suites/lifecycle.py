@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 
 from mcp_probe.client import MCPClient
@@ -55,7 +56,10 @@ class LifecycleSuite(BaseSuite):
             self.skip("Legacy isolated probe; requires --active")
         async with self._transport_factory() as transport:
             client = MCPClient(transport, self._timeout)
-            response = await client._send_request("tools/list")
+            try:
+                response = await client._send_request("tools/list")
+            except (ConnectionError, asyncio.TimeoutError):
+                return self.info_check("Isolated peer rejected or did not answer a pre-initialize request")
             behavior = "rejected" if "error" in response else "accepted"
             return self.info_check(f"Request before initialize was {behavior}; this is an observation")
 

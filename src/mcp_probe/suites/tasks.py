@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from mcp_probe.protocol import ProtocolError, result_object, validate_tool_result
-from mcp_probe.schema_utils import generate_valid_args, matches_schema
+from mcp_probe.schema_worker import generate_valid_args, matches_schema
 from mcp_probe.suites.base import BaseSuite, check
 from mcp_probe.types import Severity
 
@@ -58,10 +58,10 @@ class TasksSuite(BaseSuite):
                 continue
             args = self._client.tool_cases.get(tool["name"])
             if args is None:
-                args = generate_valid_args(tool.get("inputSchema", {}))
+                args = await generate_valid_args(tool.get("inputSchema", {}))
             if args is None:
                 continue
-            if matches_schema(args, tool["inputSchema"]) is False:
+            if await matches_schema(args, tool["inputSchema"]) is False:
                 raise ProtocolError("Task case does not match inputSchema")
             result = result_object(await self._client.call_tool_with_task(tool["name"], args))
             owned = result.get("task")
@@ -71,6 +71,17 @@ class TasksSuite(BaseSuite):
             self._owned = owned
             return owned
         self.skip("No selected task-capable tool with usable arguments")
+
+    @check("TASK-000", "Selected task tools are advertised", Severity.CRITICAL)
+    async def check_task_000(self):
+        if not self._client.allowed_tools:
+            self.skip("No task tool selected")
+        if not self._tools:
+            self._tools = await self._client.list_tools()
+        names = {t.get("name") for t in self._tools if isinstance(t.get("name"), str)}
+        if self._client.allowed_tools - names:
+            return self.fail_check("Selected task tool was not advertised")
+        return self.pass_check("Selected tools were found")
 
     @check("TASK-001", "Advertised tasks/list returns a bounded list", Severity.ERROR)
     async def check_task_001(self):
