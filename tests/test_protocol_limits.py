@@ -94,6 +94,7 @@ async def test_run_timeout_returns_incomplete_report():
     [
         ([0, 1, 2], Status.PASS),
         ([0, 2, 1], Status.FAIL),
+        ([0, 0], Status.FAIL),
         ([True], Status.FAIL),
         ([-1], Status.FAIL),
         ([float("nan")], Status.FAIL),
@@ -115,3 +116,9 @@ async def test_progress_tokens_keep_string_and_integer_separate():
         for token, value in [(1, 10), ("1", 0), (1, 11), ("1", 1)]
     ]
     assert (await NotificationsSuite(client).check_notif_005()).status is Status.PASS
+
+
+@pytest.mark.parametrize("raw", [b'{"x":1e999}', b'{"x":' + b"1" * 257 + b"}"])
+def test_numeric_parse_budgets(raw):
+    with pytest.raises(ProtocolError):
+        loads_message(raw)

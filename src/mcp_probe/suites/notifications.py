@@ -99,14 +99,14 @@ class NotificationsSuite(BaseSuite):
             total = params.get("total")
             if total is not None:
                 if type(total) not in (int, float) or not math.isfinite(total) or total < 0:
-                    issues.append(f"total is {total!r}, expected number > 0")
+                    issues.append(f"total is {total!r}, expected number >= 0")
                 elif progress > total:
                     issues.append(f"progress {progress} > total {total}")
             by_token.setdefault((type(token), token), []).append(params)
         for token, entries in by_token.items():
             values = [e.get("progress", 0) for e in entries]
             for i in range(1, len(values)):
-                if values[i] < values[i - 1]:
+                if values[i] <= values[i - 1]:
                     issues.append(f"token {token}: progress not monotonic ({values[i - 1]} -> {values[i]})")
         if issues:
             return self.fail_check("; ".join(issues[:5]))

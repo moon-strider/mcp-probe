@@ -28,8 +28,19 @@ def loads_message(raw: bytes | str) -> dict:
     def reject_constant(value: str) -> None:
         raise ProtocolError("Non-finite numbers are not JSON")
 
+    def finite_float(raw_number: str) -> float:
+        number = float(raw_number)
+        if not math.isfinite(number):
+            raise ProtocolError("Number exceeds the finite float range")
+        return number
+
+    def bounded_integer(raw_number: str) -> int:
+        if len(raw_number) > 256:
+            raise ProtocolError("Integer exceeds the digit budget")
+        return int(raw_number)
+
     try:
-        value = json.loads(raw, parse_constant=reject_constant)
+        value = json.loads(raw, parse_constant=reject_constant, parse_float=finite_float, parse_int=bounded_integer)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise ProtocolError("Invalid UTF-8 JSON message") from exc
     if not isinstance(value, dict):

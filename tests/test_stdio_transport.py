@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 
@@ -116,24 +117,31 @@ async def test_stderr_capture_is_bounded(tmp_path):
         assert len(t.stderr_output) <= 64 * 4096
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="Inspect descendant state through Linux procfs")
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group cleanup")
 async def test_stop_terminates_descendants(tmp_path):
-    from pathlib import Path
-
+    heartbeat = tmp_path / "heartbeat"
+    child = tmp_path / "child.py"
+    child.write_text(
+        "import pathlib, sys, time\n"
+        "path = pathlib.Path(sys.argv[1])\n"
+        "for count in range(3000):\n"
+        "    path.write_text(str(count))\n"
+        "    time.sleep(0.01)\n"
+    )
     script = tmp_path / "parent.py"
     script.write_text(
-        "import subprocess, sys, json\n"
-        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-        "print(json.dumps({'jsonrpc':'2.0','id':1,'result':{'pid':child.pid}}), flush=True)\n"
+        "import subprocess, sys, json, pathlib, time\n"
+        "child = subprocess.Popen([sys.executable, sys.argv[1], sys.argv[2]])\n"
+        "while not pathlib.Path(sys.argv[2]).exists(): time.sleep(0.01)\n"
+        "print(json.dumps({'jsonrpc':'2.0','id':1,'result':{}}), flush=True)\n"
         "sys.stdin.read()\n"
     )
-    t = StdioTransport([sys.executable, str(script)])
+    t = StdioTransport([sys.executable, str(script), str(child), str(heartbeat)])
     async with t:
-        child = (await t.receive(5))["result"]["pid"]
-    for _ in range(100):
-        stat = Path(f"/proc/{child}/stat")
-        if not stat.exists() or stat.read_text().split()[2] == "Z":
-            break
-        await asyncio.sleep(0.01)
-    else:
-        pytest.fail("The server descendant survived transport cleanup")
+        await t.receive(5)
+        before = heartbeat.read_text()
+        await asyncio.sleep(0.1)
+        assert heartbeat.read_text() != before, "Descendant was not running before cleanup"
+    after = heartbeat.read_text()
+    await asyncio.sleep(0.1)
+    assert heartbeat.read_text() == after, "Descendant kept running after transport cleanup"
